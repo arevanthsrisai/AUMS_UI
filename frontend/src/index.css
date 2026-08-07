@@ -1,0 +1,197 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --surface-rgb: 246 247 251;
+    --surface-raised-rgb: 255 255 255;
+    --surface-overlay-rgb: 255 255 255;
+    --ink-rgb: 15 23 42;
+    --ink-soft-rgb: 71 85 105;
+    --ink-faint-rgb: 148 163 184;
+    --brand-50: #eef2ff;
+    --brand-100: #e0e7ff;
+    --brand-200: #c7d2fe;
+    --brand-300: #a5b4fc;
+    --brand-400: #818cf8;
+    --brand-500: #6366f1;
+    --brand-600: #4f46e5;
+    --brand-700: #4338ca;
+    --accent: #8b5cf6;
+    --accent-soft: rgba(139, 92, 246, 0.12);
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #0ea5e9;
+    --border-rgb: 15 23 42;
+  }
+
+  .dark {
+    --surface-rgb: 11 16 32;
+    --surface-raised-rgb: 18 26 47;
+    --surface-overlay-rgb: 18 26 47;
+    --ink-rgb: 226 232 240;
+    --ink-soft-rgb: 148 163 184;
+    --ink-faint-rgb: 100 116 139;
+    --brand-50: #312e81;
+    --brand-100: #3730a3;
+    --brand-200: #4338ca;
+    --brand-300: #4f46e5;
+    --brand-400: #6366f1;
+    --brand-500: #818cf8;
+    --brand-600: #a5b4fc;
+    --brand-700: #c7d2fe;
+    --accent: #a78bfa;
+    --accent-soft: rgba(167, 139, 250, 0.14);
+    --success: #34d399;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --info: #38bdf8;
+    --border-rgb: 226 232 240;
+  }
+
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-surface text-ink font-sans antialiased;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  ::selection {
+    background: var(--brand-200);
+    color: var(--ink);
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--ink-faint);
+    border-radius: 999px;
+    opacity: 0.4;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--ink-soft);
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-surface-overlay backdrop-blur-xl border border-white/40 dark:border-white/10;
+    box-shadow: 0 8px 32px rgba(2, 6, 23, 0.08);
+  }
+
+  .glass-card {
+    background: var(--surface-raised);
+    @apply backdrop-blur-md rounded-2xl border border-white/60 dark:border-white/10;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s ease, border-color 0.25s ease;
+  }
+
+  .glass-card:hover {
+    border-color: rgba(165, 180, 252, 0.6);
+    box-shadow: 0 12px 40px rgba(99, 102, 241, 0.12);
+  }
+  .dark .glass-card:hover {
+    border-color: rgba(129, 140, 248, 0.3);
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98];
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98];
+    background: var(--brand-500);
+    color: #fff;
+    box-shadow: 0 10px 24px rgba(99, 102, 241, 0.28);
+  }
+  .btn-primary:hover {
+    background: var(--brand-600);
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98];
+    background: var(--surface-raised);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+  }
+  .btn-secondary:hover {
+    border-color: var(--brand-300);
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98];
+    color: var(--ink-soft);
+  }
+  .btn-ghost:hover {
+    color: var(--ink);
+    background: rgba(15, 23, 42, 0.05);
+  }
+  .dark .btn-ghost:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .input {
+    @apply w-full rounded-xl border border-border bg-surface-raised px-4 py-2.5 text-sm text-ink placeholder:text-ink-faint transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-brand-400/40 focus:border-brand-400 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden rounded-xl bg-ink/5 dark:bg-white/5;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+    background-size: 1000px 100%;
+    animation: shimmer 2s linear infinite;
+  }
+
+  .bg-aurora {
+    background:
+      radial-gradient(ellipse 80% 50% at 20% -20%, var(--brand-200), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 90% 0%, var(--accent-soft), transparent 55%),
+      radial-gradient(ellipse 60% 40% at 50% 110%, rgba(16, 185, 129, 0.08), transparent 60%),
+      var(--surface);
+  }
+
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, var(--border) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 100%);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}

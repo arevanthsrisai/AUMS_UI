@@ -1,0 +1,16 @@
+{
+  "name": "aums-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.12",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "pdf-parse": "^1.1.4",
+    "playwright": "^1.40.0"
+  }
+}
