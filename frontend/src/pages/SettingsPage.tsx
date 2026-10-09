@@ -1,9 +1,11 @@
-﻿import { Settings as SettingsIcon, Sun, Moon, Monitor, LogOut } from 'lucide-react';
+﻿import { useState } from 'react';
+import { Settings as SettingsIcon, Sun, Moon, Monitor, LogOut } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useTheme, type ThemeMode } from '../hooks/useTheme';
 import { useCurrentSemester } from '../hooks/useCurrentSemester';
 import { decodeRollNumber } from '../lib/rollNumber';
+import { loadAttendanceTarget, saveAttendanceTarget } from '../lib/storage';
 
 interface SettingsPageProps {
   onLogout: () => void;
@@ -14,6 +16,7 @@ export function SettingsPage({ onLogout, profile }: SettingsPageProps) {
   const { mode, setTheme } = useTheme();
   const { semester: currentSemester, isManual: semesterIsManual, setSemester: setCurrentSemester, resetSemester: resetCurrentSemester } = useCurrentSemester(profile?.batch);
   const rollInfo = decodeRollNumber(profile?.rollNumber);
+  const [attendanceTarget, setAttendanceTarget] = useState(() => loadAttendanceTarget());
 
   const options: { key: ThemeMode; label: string; icon: React.ElementType; desc: string }[] = [
     { key: 'light', label: 'Light', icon: Sun, desc: 'Bright and clean' },
@@ -74,6 +77,30 @@ export function SettingsPage({ onLogout, profile }: SettingsPageProps) {
           <Button variant="secondary" onClick={resetCurrentSemester}>
             {semesterIsManual ? 'Switch to Auto' : 'Auto'}
           </Button>
+        </div>
+      </Card>
+
+      <Card>
+        <h3 className="mb-1 font-display text-lg font-bold text-ink">Attendance target</h3>
+        <p className="text-sm text-ink-faint">
+          Your goal percentage. Risk levels and “can bunk / must attend” math across the app use this.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <label htmlFor="settings-target" className="sr-only">Attendance target percentage</label>
+          <select
+            id="settings-target"
+            value={attendanceTarget}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setAttendanceTarget(v);
+              saveAttendanceTarget(v);
+            }}
+            className="input w-40"
+          >
+            {[70, 75, 80, 85, 90].map((t) => (
+              <option key={t} value={t}>{t}%</option>
+            ))}
+          </select>
         </div>
       </Card>
 

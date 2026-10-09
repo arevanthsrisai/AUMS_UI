@@ -1,5 +1,6 @@
 ﻿import path from 'path';
 import fs from 'fs';
+import { logTiming } from '../services/timing.js';
 
 const ATTENDANCE_PAGE = 'AttendanceReportStudent.jsp';
 
@@ -37,7 +38,7 @@ export async function fetchAttendanceReport(page, semesterId) {
         }, menuItem.dataUrl);
       }
 
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 1000));
 
       for (const frame of page.frames()) {
         if (frame.url().includes('AttendanceReportStudent.jsp')) { attendanceFrame = frame; break; }
@@ -50,7 +51,7 @@ export async function fetchAttendanceReport(page, semesterId) {
         const semSelect = document.getElementById('htmlPageTopContainer_selectSem');
         if (!semSelect) return false;
         return Array.from(semSelect.options).some(option => option.value && option.value !== '0');
-      }, { timeout: 15000 });
+      }, undefined, { timeout: 15000, polling: 250 });
     } catch (e) {
       return { success: false, error: 'Semester dropdown never populated' };
     }
@@ -64,13 +65,13 @@ export async function fetchAttendanceReport(page, semesterId) {
     if (currentSemesterValue === String(semesterId)) {
       // Semester already selected
     } else {
-      const semesterDropdown = attendanceFrame.locator('#htmlPageTopContainer_selectSem');
-      await semesterDropdown.selectOption({ value: String(semesterId) });
+      await attendanceFrame.locator('#htmlPageTopContainer_selectSem').selectOption({ value: String(semesterId) });
 
-      // Wait for semester change to complete using content-based signal
+      // Wait for the semester change to complete via the pagePostSerialID delta
+      // — the same content+URL-serial event signal used across the attendance
+      // modules. (The previous fixed-delay polling was removed entirely.)
       const serialMatch = attendanceFrame.url().match(/pagePostSerialID=(\d+)/);
       const beforeSerial = serialMatch ? serialMatch[1] : null;
-
       await attendanceFrame.waitForFunction(({ targetSemester, previousSerial }) => {
         const url = window.location.href;
         const m = url.match(/pagePostSerialID=(\d+)/);
@@ -80,8 +81,8 @@ export async function fetchAttendanceReport(page, semesterId) {
         if (!semSelect || semSelect.value !== String(targetSemester)) return false;
         const courseSelect = document.getElementById('htmlPageTopContainer_selectCourse');
         if (!courseSelect) return false;
-        return Array.from(courseSelect.options).some(o => o.value && o.value !== '0');
-      }, { targetSemester: String(semesterId), previousSerial: beforeSerial }, { timeout: 20000 });
+        return Array.from(courseSelect.options).some((o) => o.value && o.value !== '0');
+      }, { targetSemester: String(semesterId), previousSerial: beforeSerial }, { timeout: 20000, polling: 250 });
 
       // Re-acquire frame after reload
       attendanceFrame = null;
@@ -120,63 +121,52 @@ export async function fetchAttendanceReport(page, semesterId) {
     // Click Attendance Summary
     await attendanceFrame.locator('#htmlPageTopContainer_submitSummary').waitFor({ state: 'visible', timeout: 15000 });
     await attendanceFrame.locator('#htmlPageTopContainer_submitSummary').click();
+    const tSummary = Date.now();
 
-    // Wait for table with stability check
-    let tablePopulated = false;
-    let previousCodes = null;
-    let stableCount = 0;
+    // Remember the summary frame's pagePostSerialID before the POST so we can
+    // detect the re-render precisely.
+    const beforeSummarySerial = (attendanceFrame.url().match(/pagePostSerialID=(\d+)/) || [])[1] || null;
 
-    for (let i = 0; i < 60; i++) {
-      await new Promise(r => setTimeout(r, 500));
-
-      let currentFrame = null;
-      for (const frame of page.frames()) {
-        if (frame.url().includes('AttendanceReportStudent.jsp')) { currentFrame = frame; break; }
-      }
-      if (!currentFrame) { await new Promise(r => setTimeout(r, 300)); continue; }
-
-      let snapshot;
-      try {
-        snapshot = await currentFrame.evaluate(() => {
-          const table = document.querySelector('#fieldset-arrearreport table, #arrearreport table');
-          if (!table) return { exists: false, codes: [] };
-          const codes = [];
-          const rows = table.querySelectorAll('tr');
-          for (let i = 1; i < rows.length; i++) {
-            const cells = rows[i].querySelectorAll('td');
-            if (cells.length >= 8) {
-              const code = cells[0].textContent.trim();
-              if (/^[0-9]{2}[A-Z]{3}[0-9]{3}$/.test(code)) codes.push(code);
-            }
-          }
-          return { exists: true, codes };
+    // Wait for the summary POST to complete via the pagePostSerialID delta in
+    // the attendance frame URL — a real re-render signal (AUMS bumps the
+    // serial on every POST navigation). Replaces the previous fixed 500ms
+    // poll loop: we stop the moment the new frame is in place, then verify
+    // content directly instead of sleeping to a stability threshold.
+    try {
+      await page.waitForFunction((previousSerial) => {
+        const frame = Array.from(window.frames).find((f) => {
+          try { return f.location.href.includes('AttendanceReportStudent.jsp'); } catch { return false; }
         });
-      } catch (e) {
-        await new Promise(r => setTimeout(r, 300));
-        continue;
-      }
-
-      if (snapshot.exists && snapshot.codes.length > 0) {
-        const key = snapshot.codes.join(',');
-        if (key === previousCodes) {
-          stableCount++;
-          if (stableCount >= 3) { tablePopulated = true; break; }
-        } else {
-          stableCount = 1;
-          previousCodes = key;
-        }
-      } else {
-        stableCount = 0;
-        previousCodes = null;
-      }
+        if (!frame) return false;
+        try {
+          const m = frame.location.href.match(/pagePostSerialID=(\d+)/);
+          if (!m) return false;
+          return previousSerial === null || m[1] !== previousSerial;
+        } catch { return false; }
+      }, beforeSummarySerial, { timeout: 15000, polling: 250 });
+    } catch {
+      // Serial did not increment (unusual rendering variation); fall through
+      // and let the content check below decide.
     }
 
-    // Re-acquire frame for content extraction
+    // Re-acquire frame — AUMS recreates it on the summary POST.
     attendanceFrame = null;
     for (const frame of page.frames()) {
       if (frame.url().includes('AttendanceReportStudent.jsp')) { attendanceFrame = frame; break; }
     }
     if (!attendanceFrame) throw new Error('Attendance frame lost');
+
+    // Bounded content check: table cells must exist before we hand the HTML to
+    // the parser (data correctness). Typically resolves immediately since the
+    // serial-delta wait already proved the re-render.
+    try {
+      await attendanceFrame.waitForSelector('#fieldset-arrearreport table tr td, #arrearreport table tr td', { timeout: 10000 });
+    } catch {
+      // No table rendered — the parser will find no subjects and the service
+      // layer returns a clean "Attendance table not found or empty" error.
+    }
+
+    logTiming('attendance_report', null, Date.now() - tSummary, { phase: 'summary_post_to_table_ready' });
 
     const html = await attendanceFrame.content();
     return { success: true, html, courseLookup };

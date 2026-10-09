@@ -5,15 +5,58 @@ import { fetchProfile } from './browser/profile.js';
 import { fetchGPA } from './browser/gpa.js';
 import { getAttendanceSemesters, getAttendanceReport } from './services/attendanceService.js';
 import { getCourseAttendance } from './services/courseAttendanceService.js';
+import { cacheService, cacheKeys, PROFILE_TTL_MS } from './services/cacheService.js';
+import { withTiming } from './services/timing.js';
+import { inspectPageState, recoverAumsSession, reloginInContext, performAumsLogout } from './browser/pageState.js';
+import { getBrowser } from './browser/browser.js';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 3001;
+// PORT can be set to "0", "" or garbage in some shells; fall back to 3001
+// unless it's a real positive port number.
+const PORT = (() => {
+  const n = parseInt(process.env.PORT, 10);
+  return Number.isInteger(n) && n > 0 ? n : 3001;
+})();
 
 const sessions = new Map();
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+
+// Window in which a returning user whose AUMS/CAS session died is
+// transparently re-authenticated inside their existing Playwright context.
+const RECOVERY_RELOGIN_WINDOW_MS = 12 * 60 * 60 * 1000;
+// Cooldown between re-login attempts (avoids CAS lockout loops if the
+// password changed elsewhere).
+const RELOGIN_COOLDOWN_MS = 30 * 1000;
+
+// AUMS-side session death surfaces as frame/menu-detection failures inside the
+// browser modules (they return { success:false, error } instead of throwing).
+const SESSION_LOST_RESULT_PATTERNS = [
+  'menu item not found',
+  'menu not found',
+  'frame not found',
+  'frame lost',
+];
+
+function looksLikeSessionLost(result) {
+  if (!result || typeof result !== 'object' || result.success !== false) return false;
+  const msg = String(result.error || '').toLowerCase();
+  return SESSION_LOST_RESULT_PATTERNS.some((p) => msg.includes(p));
+}
+
+// Transient Playwright frame errors: the AUMS landing can still be building
+// its own frames right after login and clobber a data navigation, detaching
+// the frame mid-operation. A short pause + one retry resolves it — the
+// session itself is fine.
+const TRANSIENT_FRAME_ERROR_PATTERNS = ['frame was detached', 'execution context was destroyed', 'target closed'];
+
+function isTransientFrameError(result) {
+  if (!result || typeof result !== 'object' || result.success !== false) return false;
+  const msg = String(result.error || '').toLowerCase();
+  return TRANSIENT_FRAME_ERROR_PATTERNS.some((p) => msg.includes(p));
+}
 
 function cleanupExpiredSessions() {
   const now = Date.now();
@@ -21,6 +64,7 @@ function cleanupExpiredSessions() {
     if (now - session.lastActivity > SESSION_TIMEOUT_MS) {
       console.log(`Session ${id.substring(0, 6)}... expired, cleaning up`);
       session.context.close().catch(() => {});
+      cacheService.invalidateSession(id);
       sessions.delete(id);
     }
   }
@@ -33,18 +77,125 @@ function updateSessionActivity(sessionId) {
   if (session) session.lastActivity = Date.now();
 }
 
-async function closeSession(sessionId) {
+async function closeSession(sessionId, { performAumsLogout: doAumsLogout = false } = {}) {
   const session = sessions.get(sessionId);
   if (session) {
     sessions.delete(sessionId);
+    cacheService.invalidateSession(sessionId);
+    if (doAumsLogout) {
+      // Tell AUMS/CAS we are leaving so server-side session state is really
+      // destroyed (the HAR shows the real chain: /aums/logout.jsp ->
+      // /portal/logout -> /cas/logout). Bounded and best-effort.
+      await performAumsLogout(session.page).catch(() => {});
+    }
     await session.context.close().catch(() => {});
   }
 }
 
 function enqueueSessionOperation(session, operation) {
-  const run = session.operationQueue.catch(() => {}).then(operation);
+  const run = session.operationQueue.then(operation);
   session.operationQueue = run.catch(() => {});
   return run;
+}
+
+// Recover the shared page after AUMS/CAS killed the session.
+// Order: 1) transparent CAS-SSO recovery with existing cookies (no creds),
+// 2) silent re-login inside the same context when we still hold fresh
+// credentials, 3) clean SESSION_EXPIRED so the frontend shows the login form
+// instead of a glitch.
+async function recoverSession(session) {
+  const log = (m) => console.log(`[RECOVERY] ${String(session.id).substring(0, 8)} ${m}`);
+  const state = await inspectPageState(session.page);
+  if (state === 'aums') return;
+  if (state === 'unknown') {
+    // Could be mid-navigation from a previous op — settle briefly and recheck.
+    await new Promise((r) => setTimeout(r, 800));
+    const again = await inspectPageState(session.page);
+    if (again === 'aums') return;
+    if (again !== 'cas-logout' && again !== 'cas-login') {
+      // Genuinely unknown state — let the operation fail naturally.
+      return;
+    }
+  }
+
+  const outcome = await recoverAumsSession(session.page, log);
+  if (outcome === 'recovered') {
+    log('AUMS session re-established via CAS SSO');
+    return;
+  }
+
+  // SSO did not work — try silent re-login with stored credentials.
+  const now = Date.now();
+  const credsFresh = session.credentials && (now - session.credentialsAt) < RECOVERY_RELOGIN_WINDOW_MS;
+  const cooledDown = (now - (session.relogin?.lastAttempt || 0)) > RELOGIN_COOLDOWN_MS;
+  if (outcome === 'needs-login' && credsFresh && cooledDown) {
+    session.relogin = session.relogin || { lastAttempt: 0 };
+    session.relogin.lastAttempt = now;
+    log('SSO recovery unavailable — re-authenticating in existing context');
+    const result = await reloginInContext(session.context, session.credentials.username, session.credentials.password, log);
+    if (result.success && result.page && !result.page.isClosed()) {
+      try { await session.page.close(); } catch { /* old page already gone */ }
+      session.page = result.page; // session keeps its context; page swapped
+      log('Re-login successful — session restored');
+      return;
+    }
+    if (result.code === 'INVALID_CREDENTIALS') {
+      // Do not retry-loop against CAS with bad credentials.
+      const err = new Error('AUMS session expired. Please sign in again.');
+      err.code = 'SESSION_EXPIRED';
+      throw err;
+    }
+  }
+
+  const err = new Error('AUMS session expired. Please sign in again.');
+  err.code = 'SESSION_EXPIRED';
+  throw err;
+}
+
+// Guard + auto-recovery wrapper around every session operation.
+// - Pre-check: if the page sits on a CAS login/logout page, recover BEFORE
+//   running the operation (this is the "stuck on logout page" fix).
+// - Post-check: when an operation reports a session-lost-shaped failure and
+//   the page really is logged out, recover once and retry the operation once.
+async function ensureAumsReady(session, operation) {
+  const attempt = async () => {
+    const state = await inspectPageState(session.page);
+    if (state === 'cas-logout' || state === 'cas-login') {
+      await recoverSession(session);
+    } else if (state === 'unknown') {
+      await new Promise((r) => setTimeout(r, 500));
+      const again = await inspectPageState(session.page);
+      if (again === 'cas-logout' || again === 'cas-login') {
+        await recoverSession(session);
+      }
+    }
+
+    let result = await operation();
+
+    if (isTransientFrameError(result)) {
+      // Landing still settling — pause briefly and retry once.
+      await new Promise((r) => setTimeout(r, 1500));
+      result = await operation();
+    }
+
+    if (looksLikeSessionLost(result)) {
+      const st = await inspectPageState(session.page);
+      if (st === 'cas-logout' || st === 'cas-login') {
+        await recoverSession(session);
+        return await operation();
+      }
+      // AUMS is fine — the failure was something else; return it untouched.
+    }
+    return result;
+  };
+
+  try {
+    return await attempt();
+  } catch (error) {
+    // Session-expiry errors thrown by recoverSession propagate unchanged so
+    // routes can map them to a clean 401 SESSION_EXPIRED.
+    throw error;
+  }
 }
 
 function generateSessionId() {
@@ -76,12 +227,18 @@ app.post('/login', async (req, res) => {
     if (result.success) {
       const sessionId = generateSessionId();
       sessions.set(sessionId, {
+        id: sessionId,
         context: result.context,
         page: result.page,
         httpClient: result.httpClient,
         createdAt: Date.now(),
         lastActivity: Date.now(),
-        operationQueue: Promise.resolve()
+        operationQueue: Promise.resolve(),
+        // Held ONLY in server memory to enable transparent re-login on
+        // session recovery. Never logged, never cached, never sent anywhere.
+        credentials: { username, password },
+        credentialsAt: Date.now(),
+        relogin: { lastAttempt: 0 },
       });
       res.json({ success: true, sessionId });
     } else {
@@ -101,9 +258,12 @@ app.post('/login', async (req, res) => {
 });
 
 // POST /logout
+// POST /logout — performs a real AUMS/CAS logout (so AUMS server-side state
+// and the CAS SSO cookie are properly invalidated) before destroying the
+// Playwright context.
 app.post('/logout', async (req, res) => {
   const sessionId = req.headers['x-session-id'];
-  if (sessionId) await closeSession(sessionId);
+  if (sessionId) await closeSession(sessionId, { performAumsLogout: true });
   res.json({ success: true });
 });
 
@@ -115,11 +275,24 @@ app.get('/profile', async (req, res) => {
   try {
     const session = sessions.get(sessionId);
     if (!session) return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', error: 'Session expired' });
+
+    const cached = cacheService.get(sessionId, cacheKeys.profile(sessionId));
+    if (cached !== undefined) return res.json(cached);
+
     const result = await withTimeout(
-      enqueueSessionOperation(session, () => fetchProfile(session.page, session.context)),
+      enqueueSessionOperation(session, () =>
+        withTiming('profile', sessionId, () =>
+          ensureAumsReady(session, () =>
+            fetchProfile(session.page, session.context)
+          ), (r) => ({ success: !!(r && r.success) }))
+      ),
       60000,
       'AUMS is taking too long to respond.'
     );
+
+    if (result && result.success) {
+      cacheService.set(sessionId, cacheKeys.profile(sessionId), result, PROFILE_TTL_MS);
+    }
     res.json(result);
   } catch (error) {
     console.error('Profile fetch error:', error.message);
@@ -137,8 +310,16 @@ app.get('/attendance', async (req, res) => {
   try {
     const session = sessions.get(sessionId);
     if (!session) return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', error: 'Session expired' });
+
     const result = await withTimeout(
-      enqueueSessionOperation(session, () => getAttendanceSemesters(session.page)),
+      enqueueSessionOperation(session, () =>
+        withTiming('attendance_semesters', sessionId, () =>
+          ensureAumsReady(session, () =>
+            cacheService.getOrFetch(sessionId, cacheKeys.semesters(sessionId), () =>
+              getAttendanceSemesters(session.page)
+            )
+          ), (r) => ({ success: !!(r && r.success), semesters: (r && r.semesters && r.semesters.length) || 0 }))
+      ),
       60000,
       'AUMS is taking too long to respond.'
     );
@@ -161,8 +342,16 @@ app.post('/attendance/report', async (req, res) => {
   try {
     const session = sessions.get(sessionId);
     if (!session) return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', error: 'Session expired' });
+
     const result = await withTimeout(
-      enqueueSessionOperation(session, () => getAttendanceReport(session.page, semesterId)),
+      enqueueSessionOperation(session, () =>
+        withTiming('attendance_report', sessionId, () =>
+          ensureAumsReady(session, () =>
+            cacheService.getOrFetch(sessionId, cacheKeys.attendanceReport(sessionId, semesterId), () =>
+              getAttendanceReport(session.page, semesterId)
+            )
+          ), (r) => ({ success: !!(r && r.success), subjects: (r && r.subjects && r.subjects.length) || 0 }))
+      ),
       60000,
       'AUMS is taking too long to respond.'
     );
@@ -185,8 +374,16 @@ app.post('/attendance/course', async (req, res) => {
   try {
     const session = sessions.get(sessionId);
     if (!session) return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', error: 'Session expired' });
+
     const result = await withTimeout(
-      enqueueSessionOperation(session, () => getCourseAttendance(session.page, semesterId, courseId)),
+      enqueueSessionOperation(session, () =>
+        withTiming('course_attendance', sessionId, () =>
+          ensureAumsReady(session, () =>
+            cacheService.getOrFetch(sessionId, cacheKeys.courseAttendance(sessionId, semesterId, courseId), () =>
+              getCourseAttendance(session.page, semesterId, courseId)
+            )
+          ), (r) => ({ success: !!(r && r.success), events: (r && r.events && r.events.length) || 0 }))
+      ),
       90000,
       'AUMS is taking too long to respond.'
     );
@@ -210,11 +407,22 @@ app.get('/course-attendance/pdf', async (req, res) => {
   try {
     const session = sessions.get(sessionId);
     if (!session) return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', error: 'Session expired' });
+
+    // Served from the same per-session cache as POST /attendance/course — no
+    // duplicate AUMS/PDF work when the JSON call already ran.
     const result = await withTimeout(
-      enqueueSessionOperation(session, () => getCourseAttendance(session.page, semesterId, courseId)),
+      enqueueSessionOperation(session, () =>
+        withTiming('course_pdf', sessionId, () =>
+          ensureAumsReady(session, () =>
+            cacheService.getOrFetch(sessionId, cacheKeys.courseAttendance(sessionId, semesterId, courseId), () =>
+              getCourseAttendance(session.page, semesterId, courseId)
+            )
+          ), (r) => ({ success: !!(r && r.success), hasPdf: !!(r && r.rawPdfBase64) }))
+      ),
       90000,
       'AUMS is taking too long to respond.'
     );
+
     if (result.success && result.rawPdfBase64) {
       res.contentType('application/pdf');
       res.send(Buffer.from(result.rawPdfBase64, 'base64'));
@@ -239,7 +447,14 @@ app.get('/gpa', async (req, res) => {
     if (!session) return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', error: 'Session expired' });
     const semester = parseInt(req.query.semester) || 1;
     const result = await withTimeout(
-      enqueueSessionOperation(session, () => fetchGPA(session.page, semester)),
+      enqueueSessionOperation(session, () =>
+        withTiming('gpa', sessionId, () =>
+          ensureAumsReady(session, () =>
+            cacheService.getOrFetch(sessionId, cacheKeys.gpa(sessionId, semester), () =>
+              fetchGPA(session.page, semester)
+            )
+          ), (r) => ({ success: !!(r && r.success), grades: (r && r.grades && r.grades.length) || 0 }))
+      ),
       60000,
       'AUMS is taking too long to respond.'
     );
@@ -258,9 +473,16 @@ process.on('SIGINT', async () => {
     await session.context.close().catch(() => {});
   }
   sessions.clear();
+  cacheService.clearAll();
   process.exit(0);
 });
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  // Warm the shared Chromium at boot so the first login doesn't pay the
+  // cold-launch cost (~1-3s). Best-effort: login launches its own browser
+  // lazily if this fails.
+  getBrowser()
+    .then(() => console.log('[BOOT] Chromium warm'))
+    .catch((e) => console.warn('[BOOT] Browser warmup failed:', e.message));
 });

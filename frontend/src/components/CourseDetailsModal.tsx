@@ -1,8 +1,9 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { X, ChevronLeft, ChevronRight, Search, Filter, RotateCcw, CalendarDays } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Search, Filter, RotateCcw, CalendarDays, Minus, Plus } from 'lucide-react';
 import { fetchCourseAttendance, type AttendanceSubject, type CourseEvent } from '../hooks/useAttendanceData';
 import { formatDateLong, monthLabel } from '../lib/utils';
+import { projectAfterAttending, DEFAULT_TARGET } from '../lib/attendanceMath';
 
 interface CourseDetailsModalProps {
   sessionId: string;
@@ -41,8 +42,47 @@ export function CourseDetailsModal({ sessionId, semesterId, subject, onClose, on
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
+  // Scenario simulator (pure client math, no AUMS calls).
+  const [simAttend, setSimAttend] = useState(0);
+  const [simBunk, setSimBunk] = useState(0);
 
   const loadedRef = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const lastActiveRef = useRef<HTMLElement | null>(null);
+
+  // Focus management: move focus into the dialog on open, keep Tab cycling
+  // inside it, and restore focus to whatever opened it on close.
+  useEffect(() => {
+    lastActiveRef.current = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    const first = dialog?.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    (first || dialog)?.focus();
+    return () => lastActiveRef.current?.focus?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const nodes = Array.from(
+        dialog.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+      ).filter((n) => !n.hasAttribute('disabled') && n.offsetParent !== null);
+      if (!nodes.length) return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      const activeEl = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (activeEl === first || !dialog.contains(activeEl)) { e.preventDefault(); last.focus(); }
+      } else if (activeEl === last || !dialog.contains(activeEl)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const load = async () => {
     // Guard: React 18 StrictMode double-invokes effects in dev, which would
@@ -134,6 +174,8 @@ export function CourseDetailsModal({ sessionId, semesterId, subject, onClose, on
 
   return (
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-4 backdrop-blur-sm"
       onClick={onClose}
       role="dialog"
@@ -149,7 +191,7 @@ export function CourseDetailsModal({ sessionId, semesterId, subject, onClose, on
         className="flex max-h-[90vh] w-full max-w-[92vw] sm:max-w-3xl flex-col overflow-hidden rounded-3xl border border-border bg-surface-raised shadow-2xl"
       >
         {/* Header */}
-        <div className="border-b border-border bg-gradient-to-r from-brand-500/10 to-accent/10 px-6 py-5">
+        <div className="border-b border-border px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="font-mono text-xs font-semibold uppercase tracking-wider text-brand-500">{subject.courseCode}</p>
@@ -207,6 +249,60 @@ export function CourseDetailsModal({ sessionId, semesterId, subject, onClose, on
                     <p className="mt-0.5 text-xs text-ink-faint">{s.label}</p>
                   </div>
                 ))}
+              </div>
+
+              {/* Scenario simulator — instant client-side projections */}
+              <div className="rounded-2xl border border-brand-300/40 bg-brand-500/5 p-4">
+                <p className="text-xs font-bold uppercase tracking-wider text-brand-500">Scenario planner</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {([
+                    { label: 'Attend', count: simAttend, set: setSimAttend, positive: true },
+                    { label: 'Bunk', count: simBunk, set: setSimBunk, positive: false },
+                  ] as const).map((sim) => (
+                    <div key={sim.label} className="flex items-center justify-between gap-2 rounded-xl border border-border bg-surface/60 p-2">
+                      <span className="text-sm font-semibold text-ink">If I {sim.label.toLowerCase()}</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => sim.set(Math.max(0, (sim.positive ? simAttend : simBunk) - 1))}
+                          className="flex h-11 w-11 items-center justify-center rounded-lg border border-border text-lg font-bold text-ink-soft transition hover:bg-ink/5 dark:hover:bg-white/5"
+                          aria-label={`One fewer ${sim.label.toLowerCase()} class`}
+                        >
+                          <Minus className="h-4 w-4" />
+                        </button>
+                        <span className="w-8 text-center text-lg font-bold text-ink" aria-live="polite">{(sim.positive ? simAttend : simBunk)}</span>
+                        <button
+                          type="button"
+                          onClick={() => sim.set((sim.positive ? simAttend : simBunk) + 1)}
+                          className="flex h-11 w-11 items-center justify-center rounded-lg border border-border text-lg font-bold text-ink-soft transition hover:bg-ink/5 dark:hover:bg-white/5"
+                          aria-label={`One more ${sim.label.toLowerCase()} class`}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                  <span className="text-ink-soft">Result:</span>
+                  {(() => {
+                    const both = simAttend > 0 || simBunk > 0;
+                    const base = stats ? { attended: stats.present, total: stats.total } : null;
+                    if (!base) return null;
+                    // Apply bunk first, then attend — matches real sequence.
+                    const afterBunk = simBunk > 0 ? { attended: base.attended, total: base.total + simBunk } : base;
+                    const afterBoth = simAttend > 0
+                      ? { attended: afterBunk.attended + simAttend, total: afterBunk.total + simAttend }
+                      : afterBunk;
+                    const pct = projectAfterAttending(afterBoth, 0);
+                    const willCross = pct !== null && pct >= DEFAULT_TARGET;
+                    return (
+                      <span className={`font-bold ${willCross ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`} aria-live="polite">
+                        {both ? '' : 'no change — '}{pct ?? '—'}%{both ? '' : ''} {pct !== null && !willCross ? `(below ${DEFAULT_TARGET}%)` : ''}
+                      </span>
+                    );
+                  })()}
+                </div>
               </div>
 
               {/* Month nav + summary */}

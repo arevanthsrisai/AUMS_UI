@@ -18,7 +18,7 @@ async function waitForSemesterChange(page, attendanceFrame, semesterId, previous
     const courseSelect = document.getElementById('htmlPageTopContainer_selectCourse');
     if (!courseSelect) return false;
     return Array.from(courseSelect.options).some(o => o.value && o.value !== '0');
-  }, { targetSemester: String(semesterId), prevSerial: previousSerial }, { timeout: 20000 });
+  }, { targetSemester: String(semesterId), prevSerial: previousSerial }, { timeout: 20000, polling: 250 });
 
   for (const frame of page.frames()) {
     if (frame.url().includes(ATTENDANCE_PAGE)) return frame;

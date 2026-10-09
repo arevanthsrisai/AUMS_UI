@@ -1,6 +1,7 @@
 ﻿export async function fetchAttendanceSemesters(page) {
   try {
-    await page.waitForLoadState('networkidle');
+    // Bounded networkidle — previously no timeout (could hang up to 30s).
+    await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
 
     let mainFrame = page;
     for (const frame of page.frames()) {
@@ -32,7 +33,7 @@
       return Array.from(window.frames).some(frame => {
         try { return frame.location.href.includes('AttendanceReportStudent.jsp'); } catch { return false; }
       });
-    }, { timeout: 15000 });
+    }, undefined, { timeout: 15000, polling: 250 });
 
     let attendanceFrame = null;
     for (const frame of page.frames()) {
@@ -41,7 +42,6 @@
     if (!attendanceFrame) return { success: false, error: 'Attendance frame not found' };
 
     await attendanceFrame.waitForSelector('#htmlPageTopContainer_selectSem', { timeout: 15000 });
-    await page.waitForLoadState('networkidle');
 
     const semesters = await attendanceFrame.evaluate(() => {
       const options = document.querySelectorAll('#htmlPageTopContainer_selectSem option');

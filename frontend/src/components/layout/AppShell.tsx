@@ -31,7 +31,6 @@ export function AppShell({ active, title, profile, onNavigate, onLogout, onSearc
 
   return (
     <div className="min-h-screen bg-aurora">
-      <div className="pointer-events-none fixed inset-0 bg-grid" aria-hidden />
       <Sidebar
         active={active}
         onNavigate={handleNavigate}
@@ -40,7 +39,7 @@ export function AppShell({ active, title, profile, onNavigate, onLogout, onSearc
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
-      <div className="lg:pl-64">
+      <div className="lg:pl-56">
         <Topbar onMenuClick={() => setSidebarOpen(true)} title={title || titles[active]} onSearchOpen={onSearchOpen} />
         <main className="relative mx-auto max-w-7xl px-3 sm:px-4 lg:px-6 py-4 sm:py-6">
           <AnimatePresence mode="wait">

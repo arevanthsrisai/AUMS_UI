@@ -1,16 +1,37 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useCurrentSemester } from './hooks/useCurrentSemester';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, MotionConfig } from 'framer-motion';
 import Login from './Login';
 import { AppShell } from './components/layout/AppShell';
 import { ToastProvider } from './components/ui/Toast';
-import { DashboardPage } from './pages/DashboardPage';
-import { AttendancePage } from './pages/AttendancePage';
-import { GpaPage } from './pages/GpaPage';
-import { CalendarPage } from './pages/CalendarPage';
-import { SettingsPage } from './pages/SettingsPage';
 import { CourseDetailsModal } from './components/CourseDetailsModal';
 import { SpotlightSearch } from './components/SpotlightSearch';
+
+// Route-level code splitting: only the active page's chunk (and its heavy
+// vendor deps — recharts, d3) is downloaded, in parallel with the initial
+// data fetch. Login and shared components stay eager: Login is the entry
+// screen for signed-out users, and the modal/spotlight are kept eager so
+// AnimatePresence exit animations keep working.
+const LazyDashboardPage = lazy(() => import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })));
+const LazyAttendancePage = lazy(() => import('./pages/AttendancePage').then((m) => ({ default: m.AttendancePage })));
+const LazyGpaPage = lazy(() => import('./pages/GpaPage').then((m) => ({ default: m.GpaPage })));
+const LazyCalendarPage = lazy(() => import('./pages/CalendarPage').then((m) => ({ default: m.CalendarPage })));
+const LazySettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+
+function PageFallback() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center" role="status" aria-live="polite" aria-label="Loading page">
+      <div className="flex flex-col items-center gap-4">
+        <div className="flex h-11 w-11 animate-pulse items-center justify-center rounded-lg bg-brand-500 text-base font-bold text-white">
+          A
+        </div>
+        <div className="h-1.5 w-32 overflow-hidden rounded-full bg-ink/10 dark:bg-white/10">
+          <div className="h-full w-1/3 animate-pulse rounded-full bg-brand-400/80" />
+        </div>
+      </div>
+    </div>
+  );
+}
 import type { NavKey } from './components/layout/Sidebar';
 import type { AttendanceSubject } from './hooks/useAttendanceData';
 import {
@@ -203,10 +224,10 @@ export default function App() {
     }
   }, [sessionId]);
 
-  const loadGpaSummary = useCallback(async () => {
+  const loadGpaSummary = useCallback(async (semester?: number) => {
     if (!sessionId) return;
     try {
-      const res = await fetchWithTimeout(`${API_BASE}/gpa?semester=1`, { headers: { 'x-session-id': sessionId } }, 60_000);
+      const res = await fetchWithTimeout(`${API_BASE}/gpa?semester=${semester ?? 1}`, { headers: { 'x-session-id': sessionId } }, 60_000);
       const data = await res.json();
       if (data.success) {
         const summary: GpaSummaryData = {
@@ -222,6 +243,19 @@ export default function App() {
       // non-fatal
     }
   }, [sessionId]);
+
+  // Fetch the SGPA/CGPA summary for the student's CURRENT semester (computed
+  // from the batch year + manual override) once the profile — and therefore
+  // the batch — is known. Previously this hardcoded semester=1, which made
+  // "Latest SGPA" show a stale first-semester value.
+  const gpaFetchedRef = useRef('');
+  useEffect(() => {
+    if (!sessionId || !currentSemester) return;
+    const key = `${sessionId}:${currentSemester}`;
+    if (gpaFetchedRef.current === key) return;
+    gpaFetchedRef.current = key;
+    loadGpaSummary(currentSemester);
+  }, [sessionId, currentSemester, loadGpaSummary]);
 
   // Restore cached data instantly, then validate the session and refresh.
   useEffect(() => {
@@ -256,13 +290,12 @@ export default function App() {
     };
 
     attempt();
-    loadGpaSummary();
     setRestoring(false);
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [sessionId, loadProfile, loadGpaSummary]);
+  }, [sessionId, loadProfile]);
 
   // Persist UI state (route etc.) whenever it changes.
   useEffect(() => {
@@ -299,28 +332,35 @@ export default function App() {
 
   if (restoring || loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-aurora">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-brand-500 border-r-transparent" />
-          <p className="text-sm font-medium text-ink-soft">
-            {restoring ? 'Restoring your session?' : 'Connecting to AUMS?'}
-          </p>
+      <MotionConfig reducedMotion="user">
+        <div className="flex min-h-screen items-center justify-center bg-aurora">
+          <div className="flex flex-col items-center gap-5" role="status" aria-live="polite">
+            <div className="flex h-12 w-12 animate-pulse items-center justify-center rounded-lg bg-brand-500 text-lg font-bold text-white shadow-pop">
+              A
+            </div>
+            <p className="text-sm font-medium text-ink-soft">
+              {restoring ? 'Restoring your session…' : 'Connecting to AUMS…'}
+            </p>
+          </div>
         </div>
-      </div>
+      </MotionConfig>
     );
   }
 
   if (!sessionId) {
     return (
-      <Login
-        onLogin={handleLogin}
-        error={error || restoreError || null}
-        disabled={loading}
-      />
+      <MotionConfig reducedMotion="user">
+        <Login
+          onLogin={handleLogin}
+          error={error || restoreError || null}
+          disabled={loading}
+        />
+      </MotionConfig>
     );
   }
 
   return (
+    <MotionConfig reducedMotion="user">
     <ToastProvider>
       <AppShell
         active={active}
@@ -330,8 +370,9 @@ export default function App() {
         onLogout={handleLogout}
         onSearchOpen={() => setSearchOpen(true)}
       >
+        <Suspense fallback={<PageFallback />}>
         {active === 'dashboard' && (
-          <DashboardPage
+          <LazyDashboardPage
             sessionId={sessionId}
             profile={profile}
             profileStatus={profileStatus}
@@ -341,15 +382,22 @@ export default function App() {
           />
         )}
         {active === 'attendance' && (
-          <AttendancePage
+          <LazyAttendancePage
             sessionId={sessionId}
             onOpenSubject={(s, sem) => handleOpenSubject(s, sem)}
             preferredSemester={currentSemester ?? undefined}
           />
         )}
-        {active === 'gpa' && <GpaPage sessionId={sessionId} />}
-        {active === 'calendar' && <CalendarPage sessionId={sessionId} />}
-        {active === 'settings' && <SettingsPage onLogout={handleLogout} profile={profile} />}
+        {active === 'gpa' && (
+          <LazyGpaPage
+            sessionId={sessionId}
+            onSessionExpired={handleSessionExpired}
+            currentSemester={currentSemester ?? undefined}
+          />
+        )}
+        {active === 'calendar' && <LazyCalendarPage sessionId={sessionId} preferredSemester={currentSemester ?? undefined} />}
+        {active === 'settings' && <LazySettingsPage onLogout={handleLogout} profile={profile} />}
+        </Suspense>
       </AppShell>
 
       <AnimatePresence>
@@ -373,6 +421,7 @@ export default function App() {
         onNavigate={setActive}
       />
     </ToastProvider>
+    </MotionConfig>
   );
 }
 

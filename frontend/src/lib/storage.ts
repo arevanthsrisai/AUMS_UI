@@ -20,6 +20,7 @@ export interface UiState {
   active?: string;
   sidebarCollapsed?: boolean;
   gpaSemester?: number;
+  attendanceTarget?: number;
   calendarView?: 'month' | 'week' | 'agenda';
   calendarYear?: number;
   calendarMonth?: number; // 0-based
@@ -100,6 +101,21 @@ export function clearCache() {
   } catch {
     // ignore
   }
+}
+
+// Attendance target (percent) — personal preference, persisted so risk
+// levels and "can bunk / must attend" math use the student's own goal
+// everywhere (dashboard, attendance page, insights).
+export function loadAttendanceTarget(): number {
+  const ui = read<UiState>(`${NS}:ui:${SCHEMA_VERSION}`);
+  const v = ui?.attendanceTarget;
+  return typeof v === 'number' && Number.isFinite(v) && v >= 40 && v <= 100 ? v : 75;
+}
+
+export function saveAttendanceTarget(target: number) {
+  if (typeof target !== 'number' || !Number.isFinite(target)) return;
+  const ui = read<UiState>(`${NS}:ui:${SCHEMA_VERSION}`) || {};
+  write(`${NS}:ui:${SCHEMA_VERSION}`, { ...ui, attendanceTarget: target });
 }
 
 // Cache keys scoped per session id.

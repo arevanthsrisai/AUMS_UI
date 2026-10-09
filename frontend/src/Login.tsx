@@ -1,6 +1,15 @@
-﻿import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Eye, EyeOff, Sparkles, LogIn, User, Lock, AlertCircle } from 'lucide-react';
+﻿import { useEffect, useState } from 'react';
+import { Eye, EyeOff, LogIn, User, Lock, AlertCircle } from 'lucide-react';
+
+// Honest status lines: each describes a real phase of the login pipeline
+// (CAS handshake → credential check → AUMS workspace). Login takes a few
+// seconds end-to-end, so these rotate to show the request is alive — they are
+// NOT a fake progress bar.
+const LOGIN_STEPS = [
+  'Contacting AUMS…',
+  'Verifying your credentials…',
+  'Opening your workspace…',
+];
 
 interface LoginProps {
   onLogin: (username: string, password: string) => void;
@@ -28,31 +37,23 @@ export default function Login({ onLogin, error, disabled = false }: LoginProps) 
   const isSubmitting = disabled || loading;
   const usernameError = touched.username && !username;
   const passwordError = touched.password && !password;
+  const [stepIdx, setStepIdx] = useState(0);
+
+  useEffect(() => {
+    if (!loading) { setStepIdx(0); return; }
+    const id = setInterval(() => setStepIdx((i) => Math.min(i + 1, LOGIN_STEPS.length - 1)), 2200);
+    return () => clearInterval(id);
+  }, [loading]);
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-aurora px-4">
-      {/* Decorative blobs */}
-      <div className="pointer-events-none absolute -left-24 top-10 h-72 w-72 rounded-full bg-brand-400/20 blur-3xl" aria-hidden />
-      <div className="pointer-events-none absolute -right-20 bottom-0 h-80 w-80 rounded-full bg-accent/20 blur-3xl" aria-hidden />
-      <div className="pointer-events-none absolute inset-0 bg-grid" aria-hidden />
-
-      <motion.div
-        initial={{ opacity: 0, y: 24, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="relative w-full max-w-md"
-      >
-        <div className="glass rounded-3xl p-8 shadow-2xl sm:p-10">
+    <div className="relative flex min-h-screen items-center justify-center bg-aurora px-4">
+      <div className="w-full max-w-sm">
+        <div className="glass rounded-xl p-8 shadow-pop sm:p-10">
           {/* Brand */}
           <div className="mb-8 flex flex-col items-center text-center">
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: 'spring', stiffness: 260, damping: 20, delay: 0.15 }}
-              className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 to-accent text-white shadow-lg shadow-brand-500/30"
-            >
-              <Sparkles className="h-8 w-8" />
-            </motion.div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-brand-500 text-lg font-bold text-white">
+              A
+            </div>
             <h1 className="mt-4 font-display text-2xl font-bold text-ink">AUMS</h1>
             <p className="mt-1 text-sm text-ink-faint">Amrita Academic Management Suite</p>
           </div>
@@ -123,21 +124,25 @@ export default function Login({ onLogin, error, disabled = false }: LoginProps) 
             </div>
 
             {error && (
-              <motion.div
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex items-start gap-2 rounded-xl border border-rose-300/50 bg-rose-500/10 p-3 text-sm text-rose-600 dark:text-rose-400"
+              <div
+                className="flex items-start gap-2 rounded-lg border border-rose-300/50 bg-rose-500/10 p-3 text-sm text-rose-600 dark:text-rose-400"
                 role="alert"
               >
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{error}</span>
-              </motion.div>
+              </div>
             )}
 
-            <motion.button
+            {loading && (
+              <p className="text-center text-xs text-ink-faint" role="status" aria-live="polite">
+                {LOGIN_STEPS[stepIdx]}{' '}
+                <span className="animate-pulse" aria-hidden="true">···</span>
+              </p>
+            )}
+
+            <button
               type="submit"
               disabled={isSubmitting || !username || !password}
-              whileTap={{ scale: 0.98 }}
               className="btn-primary w-full py-3"
             >
               {loading ? (
@@ -150,14 +155,14 @@ export default function Login({ onLogin, error, disabled = false }: LoginProps) 
                   <LogIn className="h-4 w-4" /> Sign in
                 </>
               )}
-            </motion.button>
+            </button>
           </form>
 
           <p className="mt-6 text-center text-xs text-ink-faint">
             Use your AUMS credentials to continue
           </p>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { GraduationCap, TrendingUp, RefreshCw, Award, Sparkles, ChevronDown, BookOpen } from 'lucide-react';
+import { GraduationCap, TrendingUp, RefreshCw, Award, ChevronDown, BookOpen } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Card } from '../components/ui/Card';
 import { AnimatedNumber } from '../components/ui/AnimatedNumber';
@@ -8,10 +8,13 @@ import { Badge } from '../components/ui/Badge';
 import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useToast } from '../components/ui/Toast';
-import { API_BASE, fetchWithTimeout } from '../lib/api';
+import { API_BASE, fetchWithTimeout, isSessionExpired } from '../lib/api';
 
 interface GpaPageProps {
   sessionId: string;
+  onSessionExpired?: () => void;
+  /** Current semester (computed from batch) — the page opens on this. */
+  currentSemester?: number;
 }
 
 interface Grade {
@@ -80,12 +83,23 @@ const fadeUp = {
   show: (i: number) => ({ opacity: 1, y: 0, transition: { delay: i * 0.06, duration: 0.4, ease: [0.16, 1, 0.3, 1] as const } }),
 };
 
-export function GpaPage({ sessionId }: GpaPageProps) {
+export function GpaPage({ sessionId, onSessionExpired, currentSemester }: GpaPageProps) {
   const [data, setData] = useState<GPAData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [semester, setSemester] = useState(1);
+  const [semester, setSemester] = useState(currentSemester ?? 1);
   const { error: toastError } = useToast();
+
+  // If the semester resolves after mount (profile still loading), switch to it.
+  const semesterSyncedRef = useRef(currentSemester != null);
+  useEffect(() => {
+    if (currentSemester && !semesterSyncedRef.current) {
+      semesterSyncedRef.current = true;
+      setSemester(currentSemester);
+      fetchGpa(currentSemester);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSemester]);
 
   const fetchGpa = async (sem = semester) => {
     setLoading(true);
@@ -95,6 +109,11 @@ export function GpaPage({ sessionId }: GpaPageProps) {
       const json: GPAData = await res.json();
       if (json.success) {
         setData(json);
+      } else if (isSessionExpired((json as { code?: string }).code)) {
+        // Backend reports the AUMS session truly died (recovery failed) —
+        // behave like the attendance flow instead of only showing an error.
+        toastError('Your session expired. Please sign in again.');
+        onSessionExpired?.();
       } else {
         setError(json.error || 'Failed to fetch GPA data');
         toastError(json.error || 'Failed to fetch GPA data');
@@ -151,52 +170,40 @@ export function GpaPage({ sessionId }: GpaPageProps) {
 
   return (
     <div className="space-y-6">
-      {/* Hero */}
-      <Card className="relative overflow-hidden border-none bg-gradient-to-br from-brand-500 via-brand-600 to-accent p-6 text-white sm:p-8">
-        <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/10 blur-2xl" aria-hidden />
-        <div className="pointer-events-none absolute -bottom-24 right-32 h-48 w-48 rounded-full bg-white/5 blur-xl" aria-hidden />
-        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="flex items-center gap-2 text-sm font-medium text-white/80">
-              <Sparkles className="h-4 w-4" /> Academic Performance
-            </p>
-            <h2 className="mt-1 font-display text-2xl font-bold sm:text-3xl">Grade Point Average</h2>
-            <p className="mt-1 text-sm text-white/80">Track your grades and semester progression</p>
+      {/* Header — quiet */}
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="font-display text-2xl font-bold text-ink">Grade Point Average</h2>
+          <p className="mt-0.5 text-sm text-ink-soft">Grades and semester progression</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={semester}
+            onChange={(e) => { const s = Number(e.target.value); setSemester(s); fetchGpa(s); }}
+            className="input sm:w-40"
+            aria-label="Select semester"
+          >
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => <option key={s} value={s}>Semester {s}</option>)}
+          </select>
+          <button onClick={() => fetchGpa()} className="btn-secondary" disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+      </header>
+
+      {data && (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="glass-card p-5">
+            <p className="text-3xl font-bold text-ink">{data.semesterSgpa || '\u2014'}</p>
+            <p className="mt-0.5 text-sm text-ink-faint">Semester {data.semester} SGPA</p>
           </div>
-          <div className="flex items-center gap-3">
-            <select
-              value={semester}
-              onChange={(e) => { const s = Number(e.target.value); setSemester(s); fetchGpa(s); }}
-              className="w-full sm:w-auto rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur-sm focus:outline-none [&>option]:text-ink"
-              aria-label="Select semester"
-            >
-              {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => <option key={s} value={s}>Semester {s}</option>)}
-            </select>
-            <button
-              onClick={() => fetchGpa()}
-              className="flex items-center gap-2 rounded-xl bg-white/15 px-3.5 py-2 text-sm font-semibold text-white backdrop-blur-sm transition hover:bg-white/25 touch-manipulation"
-              disabled={loading}
-            >
-              {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Refresh
-            </button>
+          <div className="glass-card p-5">
+            <p className="text-3xl font-bold text-ink">{data.currentCgpa || '\u2014'}</p>
+            <p className="mt-0.5 text-sm text-ink-faint">Current CGPA</p>
           </div>
         </div>
-
-        {data && (
-          <div className="relative mt-6 flex flex-wrap items-center gap-6">
-            <div>
-              <p className="text-4xl font-bold">{data.semesterSgpa || '\u2014'}</p>
-              <p className="text-xs text-white/80">Semester {data.semester} SGPA</p>
-            </div>
-            <div className="h-10 w-px bg-white/20" />
-            <div>
-              <p className="text-4xl font-bold">{data.currentCgpa || '\u2014'}</p>
-              <p className="text-xs text-white/80">Current CGPA</p>
-            </div>
-          </div>
-        )}
-      </Card>
+      )}
 
       {error && (
         <Card className="border-rose-300/50 bg-rose-500/5">
@@ -218,8 +225,8 @@ export function GpaPage({ sessionId }: GpaPageProps) {
             {[
               { label: 'Current CGPA', value: data.currentCgpa || '\u2014', icon: Award, color: 'text-brand-500 bg-brand-500/10' },
               { label: 'Semester SGPA', value: data.semesterSgpa || '\u2014', icon: TrendingUp, color: 'text-emerald-500 bg-emerald-500/10' },
-              { label: 'Average Grade Point', value: avgPoints.toFixed(2), icon: GraduationCap, color: 'text-violet-500 bg-violet-500/10' },
-              { label: 'Courses', value: grades.length, icon: BookOpen, color: 'text-amber-500 bg-amber-500/10' },
+              { label: 'Average Grade Point', value: grades.length ? avgPoints.toFixed(2) : '\u2014', icon: GraduationCap, color: 'text-violet-500 bg-violet-500/10' },
+              { label: 'Courses', value: grades.length || '\u2014', icon: BookOpen, color: 'text-amber-500 bg-amber-500/10' },
             ].map((m, i) => (
               <motion.div key={m.label} variants={fadeUp} custom={i} initial="hidden" animate="show">
                 <Card className="flex items-center gap-4">
@@ -255,7 +262,7 @@ export function GpaPage({ sessionId }: GpaPageProps) {
                       <span className="w-10 shrink-0 font-mono text-sm font-bold text-ink">{d.grade}</span>
                       <div className="h-6 flex-1 overflow-hidden rounded-lg bg-ink/5 dark:bg-white/10">
                         <motion.div
-                          className={`flex h-full items-center rounded-lg bg-gradient-to-r px-2 ${GRADE_BAR_COLORS[d.grade] || 'from-brand-500 to-accent'}`}
+                          className={`flex h-full items-center rounded-lg bg-gradient-to-r px-2 ${GRADE_BAR_COLORS[d.grade] || 'bg-brand-500'}`}
                           initial={{ width: 0 }}
                           animate={{ width: `${Math.max(d.pct, 8)}%` }}
                           transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
@@ -303,7 +310,7 @@ export function GpaPage({ sessionId }: GpaPageProps) {
                   <div className="flex items-center justify-between rounded-xl border border-border bg-surface/50 p-3">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">Average Grade Point</p>
-                      <p className="mt-0.5 text-lg font-bold text-ink">{avgPoints.toFixed(2)}</p>
+                      <p className="mt-0.5 text-lg font-bold text-ink">{grades.length ? avgPoints.toFixed(2) : '\u2014'}</p>
                     </div>
                     <Badge tone={performanceBadge(avgPoints).tone}>{performanceBadge(avgPoints).label}</Badge>
                   </div>
@@ -379,9 +386,9 @@ export function GpaPage({ sessionId }: GpaPageProps) {
                       animate="show"
                       whileHover={{ y: -3 }}
                       transition={{ type: 'spring', stiffness: 350, damping: 26 }}
-                      className="group flex items-center gap-4 rounded-2xl border border-border bg-surface/50 p-4 transition hover:border-brand-300 hover:shadow-lg hover:shadow-brand-500/5"
+                      className="group flex items-center gap-4 rounded-xl border border-border bg-surface/50 p-4 transition hover:border-brand-300"
                     >
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500/10 to-accent/10 font-mono text-sm font-bold text-brand-500">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand-500/10 font-mono text-sm font-bold text-brand-500">
                         {g.courseCode.slice(-2)}
                       </div>
                       <div className="min-w-0 flex-1">

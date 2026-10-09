@@ -10,14 +10,16 @@ async function waitForProfileFrame(page, timeout = 15000) {
     return Array.from(window.frames).some(frame => {
       try { return frame.location.href.includes(profilePage); } catch { return false; }
     });
-  }, PROFILE_PAGE, { timeout });
+  }, PROFILE_PAGE, { timeout, polling: 250 });
   const frame = getProfileFrame(page);
   if (!frame) throw new Error('Profile frame not found');
   return frame;
 }
 
 export async function openProfilePage(page) {
-  await page.waitForLoadState('networkidle');
+  // Bounded networkidle — previously no timeout (could hang up to 30s on the
+  // asset-heavy AUMS shell). The menu frame is what we actually need below.
+  await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
 
   let mainFrame = page;
   for (const frame of page.frames()) {

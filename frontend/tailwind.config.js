@@ -39,11 +39,9 @@ export default {
         display: ['Sora', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        glass: '0 8px 32px rgba(0, 0, 0, 0.08)',
-        'glass-lg': '0 16px 48px rgba(0, 0, 0, 0.12)',
-        soft: '0 2px 12px rgba(0, 0, 0, 0.05)',
-        'soft-lg': '0 8px 32px rgba(0, 0, 0, 0.08)',
-        glow: '0 0 24px rgba(199, 210, 254, 0.6)',
+        card: '0 1px 2px rgba(15, 23, 42, 0.04)',
+        'card-hover': '0 2px 6px rgba(15, 23, 42, 0.06)',
+        pop: '0 8px 24px rgba(15, 23, 42, 0.14)',
       },
       borderRadius: {
         '2.5xl': '1.25rem',

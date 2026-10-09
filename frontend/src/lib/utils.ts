@@ -18,3 +18,15 @@ export function formatDateLong(iso: string): string {
 export function monthLabel(date: Date): string {
   return date.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 }
+
+/**
+ * Local-date ISO string (YYYY-MM-DD) — matches the day keys used by calendar
+ * event maps. new Date().toISOString() would use UTC and shift the day near
+ * midnight for IST users.
+ */
+export function localIsoDate(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}

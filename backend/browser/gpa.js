@@ -1,8 +1,13 @@
 ﻿import * as cheerio from 'cheerio';
+import { logTiming } from '../services/timing.js';
 
 const HOME_URL = 'https://aumscn.amrita.edu/aums/Jsp/Common/index.jsp';
 
 export async function fetchGPA(page, semester = 1) {
+  const t0 = Date.now();
+  let navigated = false;
+  let changed = false;
+  let fastPath = false;
   try {
     // Step 1: Navigate to GPA via menu click (preserves frameset)
     if (!page.url().includes('StudentPerformanceWithSurvey.jsp')) {
@@ -21,6 +26,7 @@ export async function fetchGPA(page, semester = 1) {
 
       if (!menuItem) return { success: false, error: 'GPA menu not found' };
 
+      navigated = true;
       await mainFrame.evaluate((url) => {
         const mf = document.getElementById('maincontentframe');
         if (mf) mf.src = url;
@@ -30,14 +36,16 @@ export async function fetchGPA(page, semester = 1) {
         return Array.from(window.frames).some(f =>
           f.location.href.includes('StudentPerformanceWithSurvey.jsp')
         );
-      }, { timeout: 15000 });
+      }, undefined, { timeout: 15000, polling: 250 });
     }
 
     // Step 2: Find the GPA frame
     let gpaFrame = page.frames().find(f => f.url().includes('StudentPerformanceWithSurvey.jsp'));
     if (!gpaFrame) return { success: false, error: 'GPA frame not found' };
 
-    await gpaFrame.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
+    // The frame's initial render is complete when its dropdown exists —
+    // content-based, replaces the old networkidle wait.
+    await gpaFrame.waitForSelector('#htmlPageTopContainer_selectStep', { timeout: 15000 });
 
     // Step 3: Find and interact with the semester dropdown
     let dropdown = gpaFrame.locator('#htmlPageTopContainer_selectStep');
@@ -57,41 +65,45 @@ export async function fetchGPA(page, semester = 1) {
     const semesterText = semester.toString();
     const matchingOption = options.find(opt => opt.text === semesterText) || options.find(opt => opt.selected) || options[0];
 
-    console.log('[GPA] Selecting semester:', matchingOption.text, '(value:', matchingOption.value, ')');
+    // Step 4: Select the semester — or skip the POST entirely when AUMS
+    // already renders the requested one (the pre-rendered payload is exactly
+    // what a CHANGESEM POST would produce, minus the round-trip and the old
+    // fixed 3s sleep).
+    const selectedOption = options.find((opt) => opt.selected);
+    const alreadySelected = !!selectedOption && selectedOption.text === String(semester);
 
-    // Step 4: Select the semester
-    await dropdown.selectOption({ value: matchingOption.value });
-
-    // Wait for the selection to register
-    await page.waitForTimeout(3000);
-
-    // Step 5: Trigger formSubmit to load grade data (THIS IS THE KEY!)
-    console.log('[GPA] Triggering formSubmit...');
-    await gpaFrame.evaluate(() => {
-      if (typeof formSubmit === 'function') {
-        formSubmit('UMS-EVAL_STUDPERFORMSURVEY_CHANGESEM_SCREEN');
+    if (alreadySelected) {
+      fastPath = true; // extract directly below — no POST, no sleep
+    } else {
+      if (!selectedOption || selectedOption.value !== matchingOption.value) {
+        await dropdown.selectOption({ value: matchingOption.value });
       }
-    });
+      changed = true;
 
-    // Step 6: Wait for grade data to appear
-    try {
-      await Promise.race([
-        gpaFrame.waitForSelector('#fieldset-Grades table tr:nth-child(2)', { timeout: 15000 }),
-        gpaFrame.waitForFunction(() => {
-          const labels = document.querySelectorAll('label');
-          for (const l of labels) {
-            if (l.textContent.includes('Semester SGPA')) return true;
-          }
-          return false;
-        }, { timeout: 15000 })
-      ]);
-    } catch (e) {
-      await gpaFrame.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+      // Trigger formSubmit to load grade data (AUMS-internal POST).
+      await gpaFrame.evaluate(() => {
+        if (typeof formSubmit === 'function') {
+          formSubmit('UMS-EVAL_STUDPERFORMSURVEY_CHANGESEM_SCREEN');
+        }
+      });
+
+      // Step 6: Wait for the CHANGESEM POST to complete. AUMS bumps the
+      // pagePostSerialID in the frame URL on every re-render, so a serial
+      // delta + selected-semester match is a real completion event — this
+      // replaces the previous fixed 3000ms sleep.
+      try {
+        await waitForSemesterPost(page, matchingOption.text, 20000);
+      } catch {
+        // Bounded fallback: settle as soon as grade rows render (max 3s).
+        try {
+          await gpaFrame.waitForSelector('#fieldset-Grades table tr:nth-child(2)', { timeout: 3000 });
+        } catch { /* extract whatever is rendered below */ }
+      }
+
+      // Step 7: Re-acquire frame in case it was recreated by the POST.
+      gpaFrame = page.frames().find((f) => f.url().includes('StudentPerformanceWithSurvey.jsp'));
+      if (!gpaFrame) return { success: false, error: 'GPA frame lost after formSubmit' };
     }
-
-    // Step 7: Re-acquire frame in case it was recreated
-    gpaFrame = page.frames().find(f => f.url().includes('StudentPerformanceWithSurvey.jsp'));
-    if (!gpaFrame) return { success: false, error: 'GPA frame lost after formSubmit' };
 
     // Step 8: Extract data from live DOM
     const result = await gpaFrame.evaluate(() => {
@@ -138,7 +150,12 @@ export async function fetchGPA(page, semester = 1) {
       return out;
     });
 
-    console.log('[GPA] CGPA:', result.currentCgpa, '| SGPA:', result.semesterSgpa, '| Grades:', result.grades.length);
+    logTiming('gpa', null, Date.now() - t0, {
+      path: fastPath ? 'fast' : 'full',
+      navigated,
+      changed,
+      grades: result.grades ? result.grades.length : 0,
+    });
 
     if (result.currentCgpa === null) return { success: false, error: 'Current CGPA not found on page' };
     return {
@@ -150,6 +167,7 @@ export async function fetchGPA(page, semester = 1) {
     };
   } catch (error) {
     console.error('[GPA] Error:', error.message);
+    logTiming('gpa', null, Date.now() - t0, { error: error.message });
     return { success: false, error: 'Unable to fetch GPA: ' + error.message };
   }
 }
@@ -209,3 +227,33 @@ export function parseGPAPage(html) {
 }
 
 export default fetchGPA;
+
+// Wait until the GPA frame has been re-rendered by AUMS after the CHANGESEM
+// POST: pagePostSerialID must increment from the pre-POST value and the
+// dropdown must already show the target semester. This is the same completion
+// signal the attendance modules use — event-based, not time-based.
+async function waitForSemesterPost(page, targetSemesterText, timeoutMs) {
+  const gpaFrameBefore = page.frames().find((f) => f.url().includes('StudentPerformanceWithSurvey.jsp'));
+  const before = gpaFrameBefore
+    ? ((gpaFrameBefore.url().match(/pagePostSerialID=(\d+)/) || [])[1] || null)
+    : null;
+
+  await page.waitForFunction(
+    ({ target, prevSerial }) => {
+      const frame = Array.from(window.frames).find((f) => {
+        try { return f.location.href.includes('StudentPerformanceWithSurvey.jsp'); } catch { return false; }
+      });
+      if (!frame) return false;
+      try {
+        const m = frame.location.href.match(/pagePostSerialID=(\d+)/);
+        if (!m) return false;
+        if (prevSerial !== null && m[1] === prevSerial) return false;
+        const sel = frame.document.querySelector('#htmlPageTopContainer_selectStep');
+        if (!sel || !sel.selectedOptions || !sel.selectedOptions[0]) return false;
+        return sel.selectedOptions[0].text.trim() === String(target);
+      } catch { return false; }
+    },
+    { target: String(targetSemesterText), prevSerial: before },
+    { timeout: timeoutMs, polling: 250 }
+  );
+}

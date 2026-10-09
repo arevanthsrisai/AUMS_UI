@@ -9,7 +9,7 @@ async function waitForAttendanceFrame(page, timeout = 15000) {
     return Array.from(window.frames).some(frame => {
       try { return frame.location.href.includes(attendancePage); } catch { return false; }
     });
-  }, ATTENDANCE_PAGE, { timeout });
+  }, ATTENDANCE_PAGE, { timeout, polling: 250 });
   const frame = getAttendanceFrame(page);
   if (!frame) throw new Error('Attendance frame not found');
   return frame;
@@ -36,7 +36,7 @@ export async function waitForAttendanceControls(page, semesterId) {
     semesterSelector: '#htmlPageTopContainer_selectSem',
     courseSelector: '#htmlPageTopContainer_selectCourse',
     selectedSemester: String(semesterId)
-  }, { timeout: 15000 });
+  }, { timeout: 15000, polling: 250 });
 
   const frame = getAttendanceFrame(page);
   if (!frame) throw new Error('Attendance frame not found after semester selection');
@@ -58,7 +58,10 @@ export function resolveSemesterId(semesters, requestedSemesterId) {
 export async function fetchAttendancePage(page, semesterId) {
   console.log('Opening attendance...');
 
-  await page.waitForLoadState('networkidle');
+  // Bounded networkidle — previously no timeout (could hang up to 30s on the
+  // asset-heavy AUMS shell). 5s is enough for the idle gap after the last
+  // asset; it early-exits anyway when idle arrives sooner.
+  await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
 
   let mainFrame = page;
   for (const frame of page.frames()) {
@@ -93,11 +96,10 @@ export async function fetchAttendancePage(page, semesterId) {
       if (frames[i].location.href.includes('AttendanceReportStudent.jsp')) return true;
     }
     return false;
-  }, { timeout: 15000 });
+  }, undefined, { timeout: 15000, polling: 250 });
 
   let attendanceFrame = await waitForAttendanceFrame(page);
   await attendanceFrame.locator('#htmlPageTopContainer_selectSem').waitFor({ state: 'visible', timeout: 15000 });
-  await page.waitForLoadState('networkidle');
 
   const semesters = await getSemesterOptions(attendanceFrame);
   if (semesters.length === 0) throw new Error('No semesters available in dropdown');

@@ -1,5 +1,5 @@
 ﻿import { motion } from 'framer-motion';
-import { LayoutDashboard, CalendarDays, GraduationCap, CalendarRange, Settings, LogOut, Sparkles } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, GraduationCap, CalendarRange, Settings, LogOut } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 export type NavKey = 'dashboard' | 'attendance' | 'gpa' | 'calendar' | 'settings';
@@ -37,17 +37,15 @@ export function Sidebar({ active, onNavigate, onLogout, profile, open, onClose }
 
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-surface-overlay backdrop-blur-2xl transition-transform duration-300 ease-out',
+          'fixed inset-y-0 left-0 z-50 flex w-56 flex-col border-r border-border bg-surface-overlay transition-transform duration-300 ease-out',
           open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         )}
       >
         {/* Brand */}
-        <div className="flex items-center gap-3 px-6 py-6">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-accent text-white shadow-lg shadow-brand-500/30">
-            <Sparkles className="h-5 w-5" />
-          </div>
+        <div className="flex items-center gap-3 px-6 py-5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-500 text-base font-bold text-white">A</div>
           <div>
-            <p className="font-display text-lg font-bold text-ink leading-none">AUMS</p>
+            <p className="font-display text-base font-bold text-ink leading-none">AUMS</p>
             <p className="text-xs text-ink-faint mt-0.5">Academic Suite</p>
           </div>
         </div>
@@ -83,16 +81,15 @@ export function Sidebar({ active, onNavigate, onLogout, profile, open, onClose }
 
         {/* User */}
         <div className="border-t border-border p-4">
-          <div className="flex items-center gap-3 rounded-xl px-2 py-2">
-            <div className="relative shrink-0">
-              <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-brand-400 to-accent text-sm font-bold text-white ring-2 ring-brand-500/20">
+          <div className="flex items-center gap-3 rounded-lg px-2 py-2">
+            <div className="shrink-0">
+              <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-brand-500/10 text-sm font-bold text-brand-500">
                 {profile?.photo ? (
                   <img src={profile.photo} alt={profile.name || 'Student'} className="h-full w-full object-cover" />
                 ) : (
                   (profile?.name || 'S').charAt(0).toUpperCase()
                 )}
               </div>
-              <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-surface bg-emerald-500" title="Online" aria-label="Online" />
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-ink">{profile?.name || 'Student'}</p>
