@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, CalendarDays, X, Clock } from 'lucide-react';
 import { Card } from '../components/ui/Card';
@@ -6,8 +6,6 @@ import { CardSkeleton, Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useAttendanceData, fetchCourseAttendance, hydrateCalendarCache, type CourseEvent, type CourseAttendanceResponse } from '../hooks/useAttendanceData';
 import { formatDateLong, monthLabel, localIsoDate } from '../lib/utils';
-
-type ViewMode = 'month' | 'week' | 'agenda';
 
 interface CalendarPageProps {
   sessionId: string;
@@ -32,16 +30,27 @@ function subjectLabel(e: CourseEvent): string {
   return e.subjectName || e.subjectCode || '';
 }
 
+// TEMPORARY (product decision): ML and Holiday events are hidden from the
+// calendar everywhere — month grid, week view, agenda, and day detail. Set
+// this to an empty array to re-enable them; no other change is needed.
+const HIDDEN_EVENT_STATUSES = ['ML', 'Holiday'];
+const isHiddenStatus = (status: string) => HIDDEN_EVENT_STATUSES.includes(status);
+
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export function CalendarPage({ sessionId, preferredSemester }: CalendarPageProps) {
-  const { semesters, selectedSemester, setSelectedSemester, attendance, loadingSemesters, loadingAttendance, loadAttendance } = useAttendanceData(sessionId, preferredSemester);
-  const [view, setView] = useState<ViewMode>('month');
+  const { semesters, selectedSemester, setSelectedSemester, attendance, loadingSemesters, loadingAttendance, error, loadAttendance } = useAttendanceData(sessionId, preferredSemester);
   const [viewDate, setViewDate] = useState(() => new Date());
   const [allEvents, setAllEvents] = useState<Record<string, CourseEvent[]>>({});
   const [loadingEvents, setLoadingEvents] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  // True when every course fetch of the latest run failed with nothing to show.
+  const [eventsError, setEventsError] = useState(false);
+  // Monotonic run id: only the latest load may write events / clear the flag.
+  // Previously a stale slow run could finish after a newer one and clobber
+  // both the grid and loadingEvents (the "stuck loading" bug).
+  const loadSeqRef = useRef(0);
 
   // Turn cached per-course responses into the day-keyed event map, tagging
   // events with the subject info from the freshly loaded attendance list.
@@ -72,23 +81,50 @@ export function CalendarPage({ sessionId, preferredSemester }: CalendarPageProps
 
   const loadAllEvents = async () => {
     const subjects = attendance?.subjects || [];
-    if (!subjects.length || !selectedSemester) return;
-    setLoadingEvents(true);
+    const semId = selectedSemester;
+    if (!subjects.length || !semId) return;
+    const runId = ++loadSeqRef.current;
+    setEventsError(false);
     try {
       // Stale-while-revalidate: hydrate the grid instantly from the
       // localStorage cache, then fetch fresh data and reconcile.
       const subjectIds = subjects.map((s) => s.courseId).filter((v): v is string => !!v);
-      const cached = hydrateCalendarCache(sessionId, selectedSemester, subjectIds);
+      const cached = hydrateCalendarCache(sessionId, semId, subjectIds);
       if (cached) {
         // Instant interactive grid from cache; fresh data reconciles below.
         setAllEvents(cachedEventsToMap(cached, subjects));
       }
+      // Only block the grid when there is nothing cached to show — a
+      // background refresh must never replace a rendered calendar with a
+      // skeleton (that was the "loading loop" the user had to poke away).
+      if (!cached) setLoadingEvents(true);
+
+      // Fetch all courses concurrently (bounded) instead of sequentially:
+      // N slow AUMS round-trips used to serialize into a multi-second blank.
+      const courseIds = subjects
+        .map((s) => ({ subject: s, courseId: s.courseId }))
+        .filter((x): x is { subject: (typeof subjects)[number]; courseId: string } => !!x.courseId);
+      const CONCURRENCY = 4;
+      const results: Array<{ subject: (typeof subjects)[number]; res: CourseAttendanceResponse; courseId: string } | null> =
+        new Array(courseIds.length).fill(null);
+      let next = 0;
+      const workers = Array.from({ length: Math.min(CONCURRENCY, courseIds.length) }, async () => {
+        while (next < courseIds.length) {
+          const idx = next++;
+          const { subject, courseId } = courseIds[idx];
+          const res = await fetchCourseAttendance(sessionId, semId, courseId);
+          results[idx] = { subject, res, courseId };
+        }
+      });
+      await Promise.all(workers);
+      // A newer run superseded this one — drop our results entirely.
+      if (runId !== loadSeqRef.current) return;
 
       const map: Record<string, CourseEvent[]> = {};
       let fetched = 0;
-      for (const subject of subjects) {
-        if (!subject.courseId) continue;
-        const res = await fetchCourseAttendance(sessionId, selectedSemester, subject.courseId);
+      for (const item of results) {
+        if (!item) continue;
+        const { subject, res, courseId } = item;
         if (res.success && res.events) {
           fetched += 1;
           res.events.forEach((e) => {
@@ -100,7 +136,7 @@ export function CalendarPage({ sessionId, preferredSemester }: CalendarPageProps
               status: e.status,
               subjectCode: subject.courseCode,
               subjectName: subject.name,
-              courseId: e.courseId ?? subject.courseId,
+              courseId: e.courseId ?? courseId,
             });
           });
         }
@@ -108,23 +144,70 @@ export function CalendarPage({ sessionId, preferredSemester }: CalendarPageProps
       // Adopt the fresh snapshot only if at least one course fetch succeeded;
       // a transient AUMS failure must not blank a grid the cache just drew.
       if (fetched > 0) setAllEvents(map);
+      else if (!cached && subjects.length > 0) setEventsError(true);
+    } catch {
+      if (runId === loadSeqRef.current && !Object.keys(allEvents).length) setEventsError(true);
     } finally {
-      setLoadingEvents(false);
+      // Only the latest run may clear the flag; a stale run clearing it
+      // early (or never) is what left the skeleton stuck on screen.
+      if (runId === loadSeqRef.current) setLoadingEvents(false);
     }
   };
+
+  // Switching semesters must not leave the previous semester's events on
+  // the grid (or a selected day that belongs to it) while the new one loads.
+  // Bump the run id first so any in-flight load for the OLD semester is
+  // invalidated and can't write its results after this reset.
+  useEffect(() => {
+    loadSeqRef.current += 1;
+    setAllEvents({});
+    setSelectedDate(null);
+    setEventsError(false);
+    setLoadingEvents(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSemester]);
 
   // Auto-load attendance once the semester resolves. Previously this ran once
   // on mount when selectedSemester was still '' (no-op) and never re-ran —
   // the calendar stayed empty until the user clicked "Load Attendance".
+  // Deduped per session+semester so StrictMode double-effects and profile
+  // late-resolution don't fire duplicate report requests.
+  const autoLoadRef = useRef('');
   useEffect(() => {
-    if (selectedSemester) loadAttendance(selectedSemester);
+    if (!selectedSemester) return;
+    const key = `${sessionId}:${selectedSemester}`;
+    if (autoLoadRef.current === key) return;
+    autoLoadRef.current = key;
+    loadAttendance(selectedSemester);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSemester]);
+  }, [sessionId, selectedSemester]);
 
+  // Load the grid whenever the semester's attendance is ready. Deduped so a
+  // background refresh (new attendance object, same subject set) doesn't
+  // restart the whole fetch fan-out, and guarded so another semester's
+  // attendance never renders under the current selection.
+  const eventsKeyRef = useRef('');
   useEffect(() => {
-    if (attendance?.subjects?.length) loadAllEvents();
+    if (!attendance?.subjects?.length || !selectedSemester) return;
+    if (attendance.semesterId && attendance.semesterId !== selectedSemester) return;
+    const key = `${selectedSemester}:${attendance.subjects.map((s) => s.courseId || s.courseCode).join(',')}`;
+    if (eventsKeyRef.current === key) return;
+    eventsKeyRef.current = key;
+    loadAllEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attendance, selectedSemester]);
+
+  // Single choke point for the temporary ML/Holiday hide: every consumer
+  // below (grid counts, chips, agenda, day detail) reads visibleEvents.
+  const visibleEvents = useMemo(() => {
+    if (!HIDDEN_EVENT_STATUSES.length) return allEvents;
+    const filtered: Record<string, CourseEvent[]> = {};
+    for (const [date, events] of Object.entries(allEvents)) {
+      const kept = events.filter((e) => !isHiddenStatus(e.status));
+      if (kept.length) filtered[date] = kept;
+    }
+    return filtered;
+  }, [allEvents]);
 
   const monthCells = useMemo(() => {
     const first = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1).getDay();
@@ -136,40 +219,12 @@ export function CalendarPage({ sessionId, preferredSemester }: CalendarPageProps
     return cells;
   }, [viewDate]);
 
-  const weekDays = useMemo(() => {
-    const day = new Date(viewDate.getFullYear(), viewDate.getMonth(), viewDate.getDate());
-    const start = new Date(day);
-    start.setDate(day.getDate() - day.getDay());
-    return Array.from({ length: 7 }).map((_, i) => {
-      const d = new Date(start);
-      d.setDate(start.getDate() + i);
-      return d;
-    });
-  }, [viewDate]);
-
   const monthPrefix = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}-`;
-
-  const agendaDates = useMemo(() => {
-    const list = Object.keys(allEvents).sort();
-    const prefix = view === 'month' ? monthPrefix : '';
-    const start = view === 'week' ? weekDays[0] : null;
-    const end = view === 'week' ? weekDays[6] : null;
-    return list.filter(d => {
-      if (prefix && !d.startsWith(prefix)) return false;
-      if (start && end) {
-        const t = new Date(d + 'T00:00:00');
-        const s = new Date(start.getFullYear(), start.getMonth(), start.getDate());
-        const e = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-        if (t < s || t > e) return false;
-      }
-      return true;
-    });
-  }, [allEvents, view, monthPrefix, weekDays]);
 
   // Events for the selected day, sorted chronologically by period.
   const selectedEvents = useMemo(() => {
     if (!selectedDate) return [];
-    return (allEvents[selectedDate] || []).slice().sort((a, b) => a.period - b.period);
+    return (visibleEvents[selectedDate] || []).slice().sort((a, b) => a.period - b.period);
   }, [allEvents, selectedDate]);
 
   const navigate = (delta: number) => {
@@ -198,43 +253,42 @@ export function CalendarPage({ sessionId, preferredSemester }: CalendarPageProps
           <select value={selectedSemester} onChange={(e) => setSelectedSemester(e.target.value)} className="input w-full sm:w-36 py-2 text-sm" aria-label="Select semester">
             {semesters.map(s => <option key={s.id} value={s.id}>Sem {s.name}</option>)}
           </select>
-          <div className="flex w-full sm:w-auto rounded-xl border border-border p-1">
-            {(['month', 'week', 'agenda'] as ViewMode[]).map(v => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition ${view === v ? 'bg-brand-500 text-white shadow' : 'text-ink-soft hover:text-ink'}`}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
         </div>
       </Card>
+
+      {error && (
+        <Card className="border-rose-300/50 bg-rose-500/5">
+          <p className="font-medium text-rose-600 dark:text-rose-400">{error}</p>
+          <button onClick={() => { autoLoadRef.current = ''; loadAttendance(selectedSemester); }} className="btn-secondary mt-3 text-xs">Retry</button>
+        </Card>
+      )}
 
       {!attendance?.subjects?.length && !loadingAttendance ? (
         <EmptyState icon={CalendarDays} title="No attendance data" description="Load attendance first to populate the calendar." actionLabel="Load Attendance" onAction={() => loadAttendance()} />
       ) : (
         <Card>
-          {/* Month/Week header */}
-          {(view === 'month' || view === 'week') && (
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="font-display text-lg font-bold text-ink">{view === 'month' ? monthLabel(viewDate) : `${formatDateLong(weekDays[0].toISOString().slice(0, 10))} – ${formatDateLong(weekDays[6].toISOString().slice(0, 10))}`}</h3>
-              <div className="flex gap-2">
-                <button onClick={() => navigate(-1)} className="btn-secondary p-2" aria-label="Previous"><ChevronLeft className="h-4 w-4" /></button>
-                <button onClick={() => setViewDate(new Date())} className="btn-secondary text-xs">Today</button>
-                <button onClick={() => navigate(1)} className="btn-secondary p-2" aria-label="Next"><ChevronRight className="h-4 w-4" /></button>
-              </div>
+          {eventsError && (
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-rose-300/40 bg-rose-500/5 px-4 py-3">
+              <p className="text-sm text-rose-600 dark:text-rose-400">Couldn\u2019t load course events from AUMS.</p>
+              <button onClick={() => { eventsKeyRef.current = ''; loadAllEvents(); }} className="btn-secondary text-xs">Retry</button>
             </div>
           )}
+          {/* Month header */}
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="font-display text-lg font-bold text-ink">{monthLabel(viewDate)}</h3>
+            <div className="flex gap-2">
+              <button onClick={() => navigate(-1)} className="btn-secondary p-2" aria-label="Previous"><ChevronLeft className="h-4 w-4" /></button>
+              <button onClick={() => setViewDate(new Date())} className="btn-secondary text-xs">Today</button>
+              <button onClick={() => navigate(1)} className="btn-secondary p-2" aria-label="Next"><ChevronRight className="h-4 w-4" /></button>
+            </div>
+          </div>
 
           {/* Legend + Today jump */}
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap gap-3 text-[11px] text-ink-soft">
               <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-emerald-500" /> Present/OD</span>
               <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-rose-500" /> Absent</span>
-              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-violet-500" /> ML</span>
-              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-slate-300" /> Holiday</span>
+              {/* ML + Holiday legend entries hidden temporarily (HIDDEN_EVENT_STATUSES) */}
             </div>
             <button
               onClick={() => { setViewDate(new Date()); setSelectedDate(localIsoDate()); }}
@@ -246,7 +300,7 @@ export function CalendarPage({ sessionId, preferredSemester }: CalendarPageProps
 
           {loadingEvents ? (
             <Skeleton className="h-72" />
-          ) : view === 'month' ? (
+          ) : (
             <>
               <div className="grid grid-cols-7 border-b border-border bg-surface/60">
                 {WEEKDAYS.map(d => <div key={d} className="py-2 text-center text-xs font-semibold text-ink-faint">{d}</div>)}
@@ -255,7 +309,7 @@ export function CalendarPage({ sessionId, preferredSemester }: CalendarPageProps
                 {monthCells.map((day, i) => {
                   if (day === null) return <div key={`e${i}`} className="min-h-20 border-b border-r border-border/60 sm:min-h-24" />;
                   const iso = `${monthPrefix}${String(day).padStart(2, '0')}`;
-                  const evs = allEvents[iso] || [];
+                  const evs = visibleEvents[iso] || [];
                   const isToday = new Date().toDateString() === new Date(viewDate.getFullYear(), viewDate.getMonth(), day).toDateString();
                   const isSelected = selectedDate === iso;
                   return (
@@ -299,59 +353,6 @@ export function CalendarPage({ sessionId, preferredSemester }: CalendarPageProps
                 })}
               </div>
             </>
-          ) : view === 'week' ? (
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-7">
-              {weekDays.map(d => {
-                const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                const evs = allEvents[iso] || [];
-                const isToday = d.toDateString() === new Date().toDateString();
-                return (
-                  <button
-                    key={iso}
-                    type="button"
-                    onClick={() => setSelectedDate(selectedDate === iso ? null : iso)}
-                    aria-label={formatDateLong(iso)}
-                    aria-pressed={selectedDate === iso}
-                    className={`rounded-xl border p-3 text-left transition touch-manipulation ${isToday ? 'border-brand-400 bg-brand-500/5' : 'border-border'} ${selectedDate === iso ? 'ring-2 ring-inset ring-brand-400 bg-brand-500/10' : 'hover:bg-ink/5 dark:hover:bg-white/5'}`}
-                  >
-                    <p className={`text-xs font-bold ${isToday ? 'text-brand-500' : 'text-ink-soft'}`}>{d.toLocaleDateString('en-IN', { weekday: 'short' })}</p>
-                    <p className="text-lg font-bold text-ink">{d.getDate()}</p>
-                    <div className="mt-2 space-y-1">
-                      {evs.length === 0 && <p className="text-[10px] text-ink-faint">—</p>}
-                      {evs.map((e, i) => (
-                        <div key={i} className="flex items-center gap-1.5 text-[11px] text-ink-soft">
-                          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[displayStatus(e.status)] || 'bg-slate-400'}`} />
-                          <span className="truncate" title={e.subjectCode ? `${e.subjectCode}` : undefined}>{subjectLabel(e)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="divide-y divide-border/60">
-              {agendaDates.length === 0 && <p className="py-10 text-center text-sm text-ink-faint">No records for this period.</p>}
-              {agendaDates.map(iso => (
-                <button
-                  key={iso}
-                  type="button"
-                  onClick={() => setSelectedDate(selectedDate === iso ? null : iso)}
-                  aria-pressed={selectedDate === iso}
-                  className={`flex w-full flex-col gap-1 py-3 text-left transition sm:flex-row sm:items-center sm:gap-4 touch-manipulation ${selectedDate === iso ? 'rounded-xl bg-brand-500/10 px-3 ring-1 ring-inset ring-brand-400' : 'hover:bg-ink/5 dark:hover:bg-white/5'}`}
-                >
-                  <p className="w-40 shrink-0 text-sm font-semibold text-ink">{formatDateLong(iso)}</p>
-                  <div className="flex flex-wrap gap-2">
-                    {allEvents[iso].map((e, i) => (
-                      <span key={i} className="chip border border-border bg-surface/60">
-                        <span className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[displayStatus(e.status)] || 'bg-slate-400'}`} />
-                        {subjectLabel(e)} · P{e.period} · <span className="font-semibold">{displayStatus(e.status)}</span>
-                      </span>
-                    ))}
-                  </div>
-                </button>
-              ))}
-            </div>
           )}
 
           {/* Selected day details */}

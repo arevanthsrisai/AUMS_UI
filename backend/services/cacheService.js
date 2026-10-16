@@ -114,6 +114,7 @@ const cacheService = new SessionCache();
 const cacheKeys = {
   profile: (sid) => `profile:${sid}`,
   gpa: (sid, semester) => `gpa:${sid}:${semester}`,
+  marks: (sid, semester) => `marks:${sid}:${semester}`,
   semesters: (sid) => `semesters:${sid}`,
   attendanceReport: (sid, semesterId) => `attReport:${sid}:${semesterId}`,
   courseAttendance: (sid, semesterId, courseId) => `course:${sid}:${semesterId}:${courseId}`,

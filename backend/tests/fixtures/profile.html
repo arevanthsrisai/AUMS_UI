@@ -1,0 +1,500 @@
+<!DOCTYPE html><html><head><script src="/aums/Jsp/Core_Common/Header.js"></script></head><body ondragstart="return false" draggable="false" ondragenter="stopDragging(event);" ondragover="stopDragging(event);" ondrop="stopDragging(event);" alink="Black" bgcolor="white" class="bodyBg" leftmargin="0" link="Blue" marginwidth="12" marginheight="12" rightmargin="0" text="Black" topmargin="0" vlink="Black" onload="pageOnLoad()" onbeforeunload="pageOnUnLoad()" data-page-id="Student.jsp?action=UMS-SRM_INIT_STUDENTPROFILE_SCREEN" data-design-mode="false" data-debug-link="/aums/Jsp/Student/Student.jsp?action=UMS-SRM_INIT_STUDENTPROFILE_SCREEN&amp;isMenu=true&amp;debugMode=true" data-service-url="/aums/services">
+
+	
+
+	
+	
+	<script src="/aums/Jsp/Core_Common/CoreFunctions.js" data-component="script" data-reorder="false"></script><style>.coolBar{border-top: 1px solid buttonhighlight;	border-left: 1px solid buttonhighlight;	border-bottom: 1px solid ; border-right: 1px solid ; padding: 2px; font: menu;}</style>
+	
+
+   
+	
+		
+	
+	
+
+
+
+
+
+
+
+
+
+
+
+<iframe width="168" height="190" name="gToday:normal:agenda.js" id="gToday:normal:agenda.js" src="/aums/Jsp/Core_Common/Calendar/ipopeng1.htm" scrolling="no" frameborder="0" style="border:2px ridge; visibility:visible; z-index:999; position:absolute; left:-500px; top:0px;"> 
+</iframe>
+
+
+
+
+
+
+
+
+
+<meta http-equiv="Content-Type" content="multipart/form-data">
+
+
+<meta name="viewport" content="width=device-width,initial-scale=1"><script src="/cloud-ui/js/css.js" type="module"></script>
+
+
+<form name="mainForm" method="POST" enctype="multipart/form-data"><fieldset id="ir-generated-fieldset" style="display: none!important;"><span data-component="page-header" data-page-order="20">Student&nbsp;Details</span><fieldset data-page-order="2" id="fieldset-htmlPageTopContainer_txtRollNo" data-display-id="htmlPageTopContainer_txtRollNo"><label data-empty-label="true" for="htmlPageTopContainer_txtRollNo" style="display: none!important" id="lblhtmlPageTopContainer_txtRollNo" data-component="form-field-label" data-text-editable="true" class="z-index-3" data-page-order="1"></label><input type="text" name="htmlPageTopContainer_txtRollNo" id="htmlPageTopContainer_txtRollNo" style="display:none;" maxlength="250" size="16" value="" class="input " data-component="form-field" data-display-id="htmlPageTopContainer_txtRollNo" data-hidden="true" data-settabindex="true" data-page-order="2"></fieldset><fieldset data-page-order="4" id="fieldset-button-toolbar-0"><div id="button-toolbar-0" data-component="button-toolbar"><input type="button" name="htmlPageTopContainer_subShow_student" id="htmlPageTopContainer_subShow_student" value="Show Student" onclick="showStudent();" class="button" onmouseover="this.className='button buttonhov'" onmouseout="this.className='button'" style="display:none;" data-component="action-button" data-settabindex="true" data-page-order="5"></div></fieldset><fieldset data-page-order="6" id="fieldset-imgSearch"><div data-transform="none" id="imgSearch" data-component="identity" data-page-order="6">	 
+           	  <a name="htmlPageTopContainer_SearchLink" href="SearchStudentMaster.jsp?action=UMS-SRM_OPEN_STUDENTBROWSER" style="display:none;" onclick="return searchStudent();"></a> 
+			</div></fieldset><fieldset data-page-order="7" id="fieldset-orphan-label-0"><label data-component="orphan-label" id="orphan-label-0" data-page-order="7">First Name</label></fieldset><fieldset data-page-order="8" id="fieldset-orphan-label-1"><label data-component="orphan-label" id="orphan-label-1" data-page-order="8">Test Student</label></fieldset><fieldset data-page-order="9" id="fieldset-orphan-label-2"><label data-component="orphan-label" id="orphan-label-2" data-page-order="9">Last Name</label></fieldset><fieldset data-page-order="10" id="fieldset-orphan-label-3"><label data-component="orphan-label" id="orphan-label-3" data-page-order="10">Academic Program</label></fieldset><fieldset data-page-order="11" id="fieldset-orphan-label-4"><label data-component="orphan-label" id="orphan-label-4" data-page-order="11">B.Tech2025</label></fieldset><fieldset data-page-order="12" id="fieldset-orphan-label-5"><label data-component="orphan-label" id="orphan-label-5" data-page-order="12">Branch</label></fieldset><fieldset data-page-order="13" id="fieldset-orphan-label-6"><label data-component="orphan-label" id="orphan-label-6" data-page-order="13">AID</label></fieldset><fieldset data-page-order="14" id="fieldset-orphan-label-7"><label data-component="orphan-label" id="orphan-label-7" data-page-order="14">Semester</label></fieldset><fieldset data-page-order="15" id="fieldset-orphan-label-8"><label data-component="orphan-label" id="orphan-label-8" data-page-order="15">1</label></fieldset><fieldset data-page-order="16" id="fieldset-tabPanel"><ul id="tabPanel" data-component="new-tab" data-page-order="16"><li data-refresh="false" data-active="active"><a role="tab" id="addstudent" onclick="handleTabClick(this);">&nbsp;&nbsp;Student&nbsp;&nbsp;&nbsp;</a></li><li data-refresh="false"><a role="tab" id="qualifyingexam" onclick="handleTabClick(this);">&nbsp;&nbsp;Qualifying Exam&nbsp;&nbsp;</a></li><li data-refresh="false"><a role="tab" id="personaldetails" onclick="handleTabClick(this);">&nbsp;&nbsp;Personal&nbsp;&nbsp;&nbsp;</a></li><li data-refresh="false"><a role="tab" id="address" onclick="handleTabClick(this);">&nbsp;&nbsp;Address&nbsp;&nbsp;&nbsp;</a></li><li data-refresh="false"><a role="tab" id="contactdetails" onclick="handleTabClick(this);">&nbsp;&nbsp;Contact&nbsp;&nbsp;&nbsp;</a></li><li data-refresh="false"><a role="tab" id="healthdetails" onclick="handleTabClick(this);">&nbsp;&nbsp;Health&nbsp;&nbsp;&nbsp;</a></li><li data-refresh="false"><a role="tab" id="photo" onclick="handleTabClick(this);">&nbsp;Photo</a></li><li data-refresh="false"><a role="tab" id="affidavit" onclick="handleTabClick(this);">&nbsp;Affidavit</a></li></ul></fieldset><fieldset data-page-order="21" id="fieldset-legend-0"><legend align="left" data-component="legend" id="legend-0" name="legend-0" data-page-order="21"><span><font color="#035472" face="verdana" size="2"><b><label id="orphan-label-9">Person Details</label></b></font></span></legend></fieldset><fieldset data-page-order="23" id="fieldset-htmlPageTopContainer_addst_txteditfirstName"><label for="htmlPageTopContainer_addst_txteditfirstName" data-component="form-field-label" data-page-order="22">First Name</label><input type="text" name="htmlPageTopContainer_addst_txteditfirstName" id="htmlPageTopContainer_addst_txteditfirstName" onkeydown=" handleKeyEvents(event,null,'htmlPageTopContainer_addst_txteditlastName');" style="display:inline;" maxlength="250" size="16" value="Test Student" class="input " data-component="form-field" required="true" data-settabindex="true" data-page-order="23"></fieldset><fieldset data-page-order="25" id="fieldset-htmlPageTopContainer_addst_txteditlastName"><label for="htmlPageTopContainer_addst_txteditlastName" data-component="form-field-label" data-page-order="24">Last Name</label><input type="text" name="htmlPageTopContainer_addst_txteditlastName" id="htmlPageTopContainer_addst_txteditlastName" onkeydown=" handleKeyEvents(event,'htmlPageTopContainer_addst_txteditfirstName','htmlPageTopContainer_addst_radiogroupSex');" style="display:inline;" maxlength="250" size="16" value="" class="input " data-component="form-field" data-settabindex="true" data-page-order="25"></fieldset><fieldset data-page-order="26" id="fieldset-studImg"><div data-transform="none" id="studImg" data-component="identity" data-page-order="26">
+          	<font size="-1" face="Verdana, Arial, Helvetica, sans-serif"> 
+          	
+    			<img src="/images/abs.jpg" align="middle" width="100" height="96" name="studimage" id="viewphoto">
+    		
+    		 </font></div></fieldset><fieldset data-page-order="27" id="fieldset-dv-Gender"><div data-transform="none" data-gs-width="3" id="dv-Gender" data-component="identity" data-page-order="27">
+		   
+				Gender:
+        		 
+         			 <fieldset data-fieldset="true" id="fieldset-Gender" data-component="fieldset" data-page-order="28">
+	        	  	
+		          	
+		          	  
+		          	 
+	         	 	 <table><tbody><tr><td class="radio-hdr">Male<input type="radio" name="htmlPageTopContainer_addst_radiogroupSex" value="Male" class="radio-hdr"></td><td class="radio-hdr">Female<input type="radio" name="htmlPageTopContainer_addst_radiogroupSex" value="Female" class="radio-hdr" checked=""></td><td class="radio-hdr">Trans<input type="radio" name="htmlPageTopContainer_addst_radiogroupSex" value="Trans" class="radio-hdr"></td></tr></tbody></table>
+
+	          	    </fieldset>
+         	 
+         </div></fieldset><fieldset data-page-order="30" id="fieldset-htmlPageTopContainer_addst_txteditDob1"><label for="htmlPageTopContainer_addst_txteditDob1" data-component="form-field-label" data-page-order="29">Date Of Birth</label><input type="text" name="htmlPageTopContainer_addst_txteditDob1" id="htmlPageTopContainer_addst_txteditDob1" style="display:inline;" maxlength="16" size="16" value="01/01/2000" readonly="true" data-component="form-field" data-addon="date" required="true" data-settabindex="true" data-page-order="30"></fieldset><fieldset data-page-order="32" id="fieldset-htmlPageTopContainer_addst_txteditapplicationNo"><label for="htmlPageTopContainer_addst_txteditapplicationNo" data-component="form-field-label" data-page-order="31">Application No</label><input type="text" name="htmlPageTopContainer_addst_txteditapplicationNo" id="htmlPageTopContainer_addst_txteditapplicationNo" onkeydown=" handleKeyEvents(event,'htmlPageTopContainer_addst_radiogroupSex','htmlPageTopContainer_addst_txteditadmissionNo');" style="display:inline;" maxlength="250" size="16" value="AV.EN.U4AID00000" class="input " data-component="form-field" data-settabindex="true" data-page-order="32"></fieldset><fieldset data-page-order="34" id="fieldset-htmlPageTopContainer_addst_txteditadmissionNo"><label for="htmlPageTopContainer_addst_txteditadmissionNo" data-component="form-field-label" data-page-order="33">Admission No</label><input type="text" name="htmlPageTopContainer_addst_txteditadmissionNo" id="htmlPageTopContainer_addst_txteditadmissionNo" onkeydown=" handleKeyEvents(event,'htmlPageTopContainer_addst_txteditapplicationNo','htmlPageTopContainer_addst_selAdmissionType');" style="display:inline;" maxlength="250" size="16" value="AV.EN.U4AID00000" class="input " data-component="form-field" data-settabindex="true" data-page-order="34"></fieldset><fieldset data-page-order="36" id="fieldset-htmlPageTopContainer_addst_selAdmissionType"><label for="htmlPageTopContainer_addst_selAdmissionType" data-component="form-field-label" data-page-order="35">Admission Type</label><select name="htmlPageTopContainer_addst_selAdmissionType" id="htmlPageTopContainer_addst_selAdmissionType" onkeyup="" onkeydown="return  handleKeyEvents(event,'htmlPageTopContainer_addst_txteditadmissionNo','htmlPageTopContainer_addst_txtareaAdStEnRemarks');" class="combo" style=" display:inline;" data-component="form-field" data-settabindex="true" data-page-order="36"><option value="0">Select</option><option value="171">Merit</option><option value="172" selected="">Non-Scholarship</option><option value="224">Slab 1</option><option value="225">Slab 2</option><option value="226">Slab 3</option><option value="227">Slab 4</option></select></fieldset><fieldset data-page-order="38" id="fieldset-htmlPageTopContainer_addst_txtareaAdStEnRemarks"><label for="htmlPageTopContainer_addst_txtareaAdStEnRemarks" data-component="form-field-label" data-page-order="37">Remarks</label><textarea name="htmlPageTopContainer_addst_txtareaAdStEnRemarks" id="htmlPageTopContainer_addst_txtareaAdStEnRemarks" style="display:inline;" onkeydown=" handleKeyEvents(event,'htmlPageTopContainer_addst_selAdmissionType','htmlPageTopContainer_addst_selProgram');" cols="21" rows="2" wrap="HARD" data-component="form-field" data-settabindex="true" data-page-order="38"></textarea></fieldset><fieldset data-page-order="39" id="fieldset-legend-1"><legend align="left" data-component="legend" id="legend-1" name="legend-1" data-page-order="39"><span><font color="#035472" face="verdana" size="2"><b><label id="orphan-label-10">Academic Details</label></b></font></span></legend></fieldset><fieldset data-page-order="41" id="fieldset-htmlPageTopContainer_addst_selProgram"><label for="htmlPageTopContainer_addst_selProgram" data-component="form-field-label" data-page-order="40">Academic Program</label><select name="htmlPageTopContainer_addst_selProgram" id="htmlPageTopContainer_addst_selProgram" onkeyup="" onkeydown="return  handleKeyEvents(event,'htmlPageTopContainer_addst_txtareaAdStEnRemarks','htmlPageTopContainer_addst_selBranch');" onchange="this.form.htmlPageTopContainer_action.value='UMS-SRM_SEL_PROGRAM_SCREEN';this.form.submit();" class="combo" style=" display:inline;" data-component="form-field" required="true" data-settabindex="true" data-page-order="41"><option value="0">Select</option><option value="635">B.Tech2023</option><option value="666">B.Tech2024</option><option value="699" selected="">B.Tech2025</option><option value="640">Ph.D2023</option><option value="691">Ph.D2024</option><option value="707">Ph.D2025</option></select></fieldset><fieldset data-page-order="43" id="fieldset-htmlPageTopContainer_addst_selBranch"><label for="htmlPageTopContainer_addst_selBranch" data-component="form-field-label" data-page-order="42">Branch</label><select name="htmlPageTopContainer_addst_selBranch" id="htmlPageTopContainer_addst_selBranch" onkeyup="" onkeydown="return  handleKeyEvents(event,'htmlPageTopContainer_addst_selProgram','htmlPageTopContainer_addst_lstYearMaster');" class="combo" style=" display:inline;" data-component="form-field" required="true" data-settabindex="true" data-page-order="43"><option value="0">Select</option><option value="349" selected="">AID</option><option value="306">CCE</option></select></fieldset><fieldset data-page-order="45" id="fieldset-htmlPageTopContainer_addst_lstYearMaster"><label for="htmlPageTopContainer_addst_lstYearMaster" data-component="form-field-label" data-page-order="44">Joining Year</label><select name="htmlPageTopContainer_addst_lstYearMaster" size="1" style="display:inline;" onkeyup="" onkeydown="return  handleKeyEvents(event,'htmlPageTopContainer_addst_selBranch','htmlPageTopContainer_addst_selStep');" class="combo" data-component="form-field" id="htmlPageTopContainer_addst_lstYearMaster" required="true" data-settabindex="true" data-page-order="45"><option value="0">Select</option><option value="31">2026</option><option value="30" selected="">2025</option><option value="29">2024</option><option value="28">2023</option><option value="26">2022</option><option value="25">2021</option><option value="24">2020</option><option value="23">2019</option><option value="22">2018</option><option value="21">2017</option><option value="20">2016</option><option value="19">2015</option><option value="18">2014</option><option value="17">2013</option><option value="16">2012</option><option value="14">2011</option><option value="13">2010</option><option value="12">2009</option><option value="11">2008</option><option value="10">2007</option><option value="9">2006</option><option value="8">2005</option><option value="7">2004</option><option value="6">2003</option><option value="5">2002</option><option value="4">2001</option><option value="3">2000</option><option value="2">1999</option><option value="1">1998</option></select></fieldset><fieldset data-page-order="47" id="fieldset-htmlPageTopContainer_addst_selStep"><label for="htmlPageTopContainer_addst_selStep" data-component="form-field-label" data-page-order="46">Semester</label><select name="htmlPageTopContainer_addst_selStep" id="htmlPageTopContainer_addst_selStep" onkeyup="" onkeydown="return  handleKeyEvents(event,'htmlPageTopContainer_addst_lstYearMaster','htmlPageTopContainer_addst_radiogroupLateral');" class="combo" style=" display:inline;" data-component="form-field" required="true" data-settabindex="true" data-page-order="47"><option value="0">Select</option><option value="791" selected="">1</option><option value="792">2</option><option value="793">3</option><option value="794">4</option><option value="795">5</option><option value="796">6</option><option value="797">7</option><option value="798">8</option></select></fieldset><fieldset data-page-order="49" id="fieldset-htmlPageTopContainer_addst_txteditDoe"><label for="htmlPageTopContainer_addst_txteditDoe" data-component="form-field-label" data-page-order="48">Date Of Enrollment</label><input type="text" name="htmlPageTopContainer_addst_txteditDoe" id="htmlPageTopContainer_addst_txteditDoe" style="display:inline;" maxlength="16" size="16" value="01/01/2025" class="dateTextBox " readonly="true" data-component="form-field" data-addon="date" required="true" data-settabindex="true" data-page-order="49"></fieldset><fieldset data-page-order="51" id="fieldset-htmlPageTopContainer_addst_selStatus"><label for="htmlPageTopContainer_addst_selStatus" data-component="form-field-label" data-page-order="50">Enrollment Status</label><select name="htmlPageTopContainer_addst_selStatus" id="htmlPageTopContainer_addst_selStatus" disabled="true" onkeyup="" class="combo" style=" display:inline;" data-component="form-field" data-disabled="true" data-settabindex="true" data-page-order="51"><option value="Enrolled" selected="">Enrolled</option><option value="ReEnrolled">ReEnrolled</option><option value="Demoted">Demoted</option><option value="PassedOut">Graduated</option><option value="Discontinued">Discontinued</option></select></fieldset><fieldset data-page-order="52" id="fieldset-orphan-label-11"><label data-component="orphan-label" id="orphan-label-11" data-page-order="52">Lateral Entry</label></fieldset><fieldset data-page-order="53" id="fieldset-lateralEntry"><fieldset data-page-order="55" id="fieldset-radio0"><label for="radio0" data-component="form-field-label" data-fieldset-ancestor="fieldset-lateralEntry" data-page-order="54">Y</label><input type="radio" name="htmlPageTopContainer_addst_radiogroupLateral" value="Y" class="radio-hdr" id="radio0" data-component="form-field" data-settabindex="true" data-fieldset-ancestor="fieldset-lateralEntry" data-page-order="55"></fieldset><fieldset data-page-order="57" id="fieldset-radio1"><label for="radio1" data-component="form-field-label" data-fieldset-ancestor="fieldset-lateralEntry" data-page-order="56">N</label><input type="radio" name="htmlPageTopContainer_addst_radiogroupLateral" value="N" class="radio-hdr" checked="" id="radio1" data-component="form-field" data-settabindex="true" data-fieldset-ancestor="fieldset-lateralEntry" data-page-order="57"></fieldset></fieldset><fieldset data-page-order="59" id="fieldset-htmlPageTopContainer_addst_txteditABCId"><label for="htmlPageTopContainer_addst_txteditABCId" data-component="form-field-label" data-page-order="58">ABCID</label><input type="text" name="htmlPageTopContainer_addst_txteditABCId" id="htmlPageTopContainer_addst_txteditABCId" onkeydown=" handleKeyEvents(event,'htmlPageTopContainer_addst_radiogroupLateral','htmlPageTopContainer_addst_selPhdStudyMode');" style="display:inline;" maxlength="250" size="16" value="000000000000" class="input " data-component="form-field" data-settabindex="true" data-page-order="59"></fieldset><fieldset data-page-order="61" id="fieldset-htmlPageTopContainer_addst_txteditDateOfComments"><label for="htmlPageTopContainer_addst_txteditDateOfComments" data-component="form-field-label" data-page-order="60">Date Of Commencement</label><input type="text" name="htmlPageTopContainer_addst_txteditDateOfComments" id="htmlPageTopContainer_addst_txteditDateOfComments" style="display:inline;" maxlength="16" size="16" class="dateTextBox " readonly="true" data-component="form-field" data-addon="date" data-settabindex="true" data-page-order="61"></fieldset><fieldset data-page-order="63" id="fieldset-htmlPageTopContainer_addst_txteditDateOfCompltion"><label for="htmlPageTopContainer_addst_txteditDateOfCompltion" data-component="form-field-label" data-page-order="62">Date Of Completion</label><input type="text" name="htmlPageTopContainer_addst_txteditDateOfCompltion" id="htmlPageTopContainer_addst_txteditDateOfCompltion" style="display:inline;" maxlength="16" size="16" class="dateTextBox " readonly="true" data-component="form-field" data-addon="date" data-settabindex="true" data-page-order="63"></fieldset><fieldset data-page-order="64" id="fieldset-legend-2"><legend align="left" data-component="legend" id="legend-2" name="legend-2" data-page-order="64"><span><font color="#035472" face="verdana" size="2"><b><label id="orphan-label-12">For Phd Students Only</label></b></font>
+      
+          </span></legend></fieldset><fieldset data-page-order="66" id="fieldset-htmlPageTopContainer_addst_selPhdStudyMode"><label for="htmlPageTopContainer_addst_selPhdStudyMode" data-component="form-field-label" data-page-order="65">Part Time/Full Time</label><select name="htmlPageTopContainer_addst_selPhdStudyMode" id="htmlPageTopContainer_addst_selPhdStudyMode" onkeyup="" onkeydown="return  handleKeyEvents(event,'htmlPageTopContainer_addst_txteditABCId','htmlPageTopContainer_addst_selPhdType');" class="combo" style=" display:inline;" data-component="form-field" data-settabindex="true" data-page-order="66"><option value="0" selected="">Select</option><option value="Part Time">Part Time</option><option value="Full Time">Full Time</option></select></fieldset><fieldset data-page-order="68" id="fieldset-htmlPageTopContainer_addst_selPhdType"><label for="htmlPageTopContainer_addst_selPhdType" data-component="form-field-label" data-page-order="67">Internal/External</label><select name="htmlPageTopContainer_addst_selPhdType" id="htmlPageTopContainer_addst_selPhdType" onkeyup="" onkeydown="return  handleKeyEvents(event,'htmlPageTopContainer_addst_selPhdStudyMode','htmlPageTopContainer_addst_selPhdRole');" class="combo" style=" display:inline;" data-component="form-field" data-settabindex="true" data-page-order="68"><option value="0" selected="">Select</option><option value="Internal">Internal</option><option value="External">External</option></select></fieldset><fieldset data-page-order="70" id="fieldset-htmlPageTopContainer_addst_selPhdRole"><label for="htmlPageTopContainer_addst_selPhdRole" data-component="form-field-label" data-page-order="69">Project/ Teaching</label><select name="htmlPageTopContainer_addst_selPhdRole" id="htmlPageTopContainer_addst_selPhdRole" onkeyup="" onkeydown="return  handleKeyEvents(event,'htmlPageTopContainer_addst_selPhdType','htmlPageTopContainer_quexmk_dtListQualExamDetails_dtListQualExamDetailsTRRow0_dtListQualExamDetailsTDRow6_ViewLink');" class="combo" style=" display:inline;" data-component="form-field" data-settabindex="true" data-page-order="70"><option value="0" selected="">Select</option><option value="Project">Project</option><option value="Teaching">Teaching</option></select></fieldset><fieldset data-page-order="71" id="fieldset-button-toolbar-1"><div id="button-toolbar-1" data-component="button-toolbar"><input type="button" name="htmlPageTopContainer_addst_subSave_student" id="htmlPageTopContainer_addst_subSave_student" value="Save Student" onclick="return checkPerson();this.form.submit();" class="button" onmouseover="this.className='button buttonhov'" onmouseout="this.className='button'" style="display:none;" data-component="action-button" data-settabindex="true" data-page-order="72"><input type="button" name="htmlPageTopContainer_addst_subAdd_student" id="htmlPageTopContainer_addst_subAdd_student" value="Reset" onclick="this.form.htmlPageTopContainer_action.value='UMS-SRM_ADD_STUDENT_SCREEN';this.form.submit();" class="button" onmouseover="this.className='button buttonhov'" onmouseout="this.className='button'" style="display:none;" data-component="action-button" data-settabindex="true" data-page-order="73"></div></fieldset><input type="hidden" name="Page_refIndex_hidden" value="1" data-component="hidden" data-page-order="3"><input name="htmlPageTopContainer_ltabshistag_tabs_clicked_tabpane" type="hidden" id="histag_tabs_clicked_tabpane" value="" data-component="hidden" data-page-order="17"><input type="hidden" name="htmlPageTopContainer_enrollmentId" value="55514" data-component="hidden" data-page-order="74"><input type="hidden" name="htmlPageTopContainer_encodedenrollmentId" value="96645A5F6037DE7545F50825F0DACF23FF31E740A61B0746B6901C2E3E15E658" data-component="hidden" data-page-order="75"><input type="hidden" name="htmlPageTopContainer_personId" value="71203" data-component="hidden" data-page-order="76"><input type="hidden" name="htmlPageTopContainer_hidrollNo" value="" data-component="hidden" data-page-order="77"><input type="hidden" name="htmlPageTopContainer_hidperhealth" value="33197" data-component="hidden" data-page-order="78"><input type="hidden" name="htmlPageTopContainer_hidperaffidavit" value="0" data-component="hidden" data-page-order="79"><input type="hidden" name="htmlPageTopContainer_photoexists" value="0" data-component="hidden" data-page-order="80"><input type="hidden" name="htmlPageTopContainer_hiddenRowNo" value="" data-component="hidden" data-page-order="81"><input type="hidden" name="htmlPageTopContainer_hidPrimaryContact" value="Father" data-component="hidden" data-page-order="82"><input type="hidden" name="htmlPageTopContainer_status" value="" data-component="hidden" data-page-order="83"><input type="hidden" name="htmlPageTopContainer_action" value="" data-component="hidden" data-page-order="84"><input type="hidden" name="htmlPageTopContainer_notify" value="I" data-component="hidden" data-page-order="85"></fieldset>
+   <div data-optimize="hide" style="display:none;"><span style="line-height:5px"><br></span><table width="100%" border="0" cellpadding="5">
+  <tbody><tr><td>
+  <fieldset class="field">
+  <table width="100%" border="0" cellpadding="5"> 
+  <tbody><tr class="rowBG1">
+   <td width="8%"><span class="rowBG1" id="htmlPageTopContainer_textRollNo">&nbsp;</span></td>
+    
+	 
+
+	  </tr>
+	  </tbody></table>
+	  
+	              
+
+        </fieldset>
+	 </td></tr>
+
+   </tbody></table><table width="100%" border="0" class="studInfo" align="center" cellpadding="2">
+
+    <tbody><tr> 
+      
+      
+      
+      <td width="8%"> 
+         <b> &nbsp;</b>
+        </td>
+
+      
+      
+      
+      
+      
+      
+      </tr>
+  </tbody></table><table align="center">
+</table><table width="90%" cellpadding="0" cellspacing="0" align="center">
+  
+  <tbody><tr align="center"><td align="center">	  
+	  <table width="100%" cellpadding="0" align="center" cellspacing="0" class="cuteTable">
+	  <tbody><tr><td>
+    <div id="tabContainer" class="his-tab-pane" style="display:block;">	  
+
+    <layer name="one" visibility="show" above="7">
+      
+ 	 
+
+ 
+
+   <fieldset class="field">
+<table width="90%" class="table" border="0" cellpadding="5">
+  <!--DWLayoutTable-->
+  
+  <tbody><tr> 
+    <td colspan="5"> <fieldset class="field">
+      
+      
+      <table width="100%">
+        
+		 <tbody><tr class="rowBG1"> 
+          
+          
+          
+          
+          
+		   <td width="261">&nbsp;</td>
+		  </tr>
+		 
+	   
+         
+        <tr class="rowBG1">
+          
+          <td>
+          
+          <a href="#" onclick="gfPop.fDemoPopDepart(document.forms[0].htmlPageTopContainer_addst_txteditDob1); return false;"> 
+            
+
+            </a>
+           
+            </td>
+          
+          
+           </tr>
+        
+        
+         
+      </tbody></table>
+      </fieldset>
+  </td></tr><tr>
+ 
+    <td colspan="5"><fieldset class="field">
+      
+      <table width="90%">
+        
+        <tbody><tr class="rowBG1"> 
+		
+          
+
+                   
+          <td>
+         
+           <a href="#" onclick="gfPop.fDemoPopDepart(document.forms[0].htmlPageTopContainer_addst_txteditDoe); return false;"> 
+            
+
+            </a> 
+           
+          </td>
+		  
+          
+        </tr>
+        <tr class="rowBG1"> 
+          
+          
+          <td> 
+	          <fieldset data-fieldset="true" id="fieldset-lateralEntry" data-component="fieldset" data-page-order="53">
+				 
+			        
+			        
+	      		<table></table>
+
+	      	  </fieldset>
+	      	   
+      		</td> 
+		  
+                   
+  		   		 
+			<td><a href="#" onclick="gfPop.fDemoPopDepart(document.forms[0].htmlPageTopContainer_addst_txteditDateOfComments); return false;">
+					
+ 
+						
+						 
+								
+			</a>
+			</td>	
+			
+			
+			
+			
+			        </tr>
+			       <tr>
+     
+
+    <td>
+        <a href="#" onclick="gfPop.fDemoPopDepart(document.forms[0].htmlPageTopContainer_addst_txteditDateOfCompltion); return false;">
+            
+            
+
+            
+            
+            
+            
+            
+        </a>
+    </td>
+</tr>
+
+			
+			
+			
+      </tbody></table>
+      </fieldset></td>
+  </tr>
+  
+  <tr>
+    <td colspan="5"><fieldset class="field">
+      
+      <table width="90%">
+  		
+  	</table>
+	</fieldset></td>
+</tr>
+
+  
+</tbody></table>
+</fieldset>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	 
+	 
+
+      
+  </layer>
+
+<layer name="two" visibility="hide">
+   
+</layer>
+
+
+
+<layer name="four" visibility="hide">
+   
+</layer>
+
+<layer name="five" visibility="hide">
+ 
+
+</layer>
+
+<layer name="six" visibility="hide">
+   
+</layer> 
+
+<layer name="seven" visibility="hide">
+   
+</layer>  
+<layer name="eight" visibility="hide">
+   
+</layer>  
+<layer name="nine" visibility="hide">
+   
+</layer>  
+
+ <layer name="eleven" visibility="hide">
+   
+</layer>  
+
+ 
+<layer name="ten" visibility="hide">
+   
+</layer>
+
+
+  </div>
+    </td></tr></tbody></table>
+  </td></tr>
+  
+
+ 
+  </tbody></table></div>
+    
+	
+	
+   
+  	
+	  
+	
+	 
+    
+ <!--   
+  
+   
+  
+ -->
+ 
+  
+  
+	
+	
+
+  
+  
+   
+  
+   
+  
+   
+ 
+   
+   
+   
+   
+   
+   
+ 
+
+   
+ 
+
+  
+  
+  
+
+   
+
+  
+
+  
+
+  
+
+   
+
+  
+
+  
+
+  
+
+  
+
+  
+
+  
+  
+  </form>
+ 
+	
+
+
+
+
+
+
+
+
+
+<script src="/aums/Jsp/Core_Common/sessionExpiration.js" data-component="script"></script><script data-component="script">
+		var browserName=navigator.appName; 
+		var browserVer=parseInt(navigator.appVersion);
+		var version;
+		if((browserName=="Netscape" && browserVer>=3) || (browserName=="Microsoft Internet Explorer" && browserVer>=4)) {
+	  		version="n3";
+	  	} else {
+	  		version="n2"; 
+	  	}
+	
+		if (version=="n2")
+		{			
+	  		window.location="../Core_Common/ErrorPage.jsp";
+	
+		}
+		
+		var _clientPreferencedDateFormat = 'dd/MM/yyyy';
+		if(_clientPreferencedDateFormat==null || _clientPreferencedDateFormat=='null'){
+			_clientPreferencedDateFormat="dd/MM/yyyy";
+		}
+		
+	   	var _clientPreferencedCurrencyFormat = 'Rs';
+		if(_clientPreferencedCurrencyFormat==null || _clientPreferencedCurrencyFormat=='null'){
+			_clientPreferencedCurrencyFormat="Rs";
+		}
+
+		var _clientPreferencedTimeFormat ='null';
+		if(_clientPreferencedTimeFormat==null || _clientPreferencedTimeFormat=='null'){
+			_clientPreferencedTimeFormat="HH:mm";
+		}
+		var _clientSchedulerPreferencedDateFormat = '%d/%m/%Y';
+        if(_clientSchedulerPreferencedDateFormat==null || _clientSchedulerPreferencedDateFormat=='null'){
+            _clientSchedulerPreferencedDateFormat="%d/%m/%Y";
+        }
+        
+        var _clientSchedulerPreferencedDateTimeFormat = '%d/%m/%Y %H:%i';
+        if(_clientSchedulerPreferencedDateTimeFormat==null || _clientSchedulerPreferencedDateTimeFormat=='null'){
+        	_clientSchedulerPreferencedDateTimeFormat="%d/%m/%Y %H:%i";
+        }
+        
+        var _clientSchedulerPreferencedTimeFormat = '%H:%i';
+        if(_clientSchedulerPreferencedTimeFormat==null || _clientSchedulerPreferencedTimeFormat=='null'){
+        	_clientSchedulerPreferencedTimeFormat="%H:%i";
+        }
+
+		var _mainHelpFile="";
+		//var _generalHelpId=0;
+		var _pageHelpId=0;
+		
+		function getClientDateFormatForScheduler(){
+		    return _clientSchedulerPreferencedDateFormat;
+		}
+		
+		function getClientDateTimeFormatForScheduler(){
+            return _clientSchedulerPreferencedDateTimeFormat;
+        }
+		
+		function getClientTimeFormatForScheduler(){
+            return _clientSchedulerPreferencedTimeFormat;
+        }
+
+	</script><script src="/aums/Jsp/Core_Common/HISSDK.js" data-component="script"></script><script data-component="script">
+		// the below 2 global variables are declared for checking authorized window (as part of MBW fix)
+		// Testing comment
+	 	 var __mainWinName = 'AHIS17857355826989';
+		 var __webContextPath = '/aums';
+		 var __idleTimeOutinMinute = Math.floor(7200/60);
+		 var __warningMinutes = __idleTimeOutinMinute - 0.5;
+	</script><script data-component="script">
+
+document.addEventListener("DOMContentLoaded", function(event) {
+	var iDiv = document.createElement('div');
+	  iDiv.id = 'sessExpirDiv';
+	  iDiv.style.display='none';
+	  document.body.appendChild(iDiv); 
+});
+
+
+sessionExpiration(idleMinutes = __idleTimeOutinMinute, warningMinutes = __warningMinutes, logoutUrl = '/aums/logout.jsp');
+  
+</script><script data-component="script">
+	var hasUiDeltaRUlesEnabled = "null";
+	var hasFloatingMenuPrivilege = "null";
+	var hasViewPrivilege = "false";
+	var hasStickyViewPrivilege = "false";
+	var feedbackEnabled = "null";
+	var stickyNotesEnabled = "null";
+	var userLoginName = "null";
+	
+	function isMobile() {
+		if (/Mobi|Android/i.test(navigator.userAgent)) {
+			return true;
+		} else {
+			return false;
+		}
+	}
+	
+	// Conditionally load Header.js only if not mobile
+	if (!isMobile()) {
+		var script = document.createElement('script');
+		script.src = '/aums/Jsp/Core_Common/Header.js';
+		document.head.appendChild(script);
+	}
+</script><script src="/aums/Jsp/Core_Common/ModalWindow.js" data-component="script"></script><script src="studentfaculty.js" data-component="script"></script></body></html>

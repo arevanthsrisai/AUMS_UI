@@ -1,8 +1,34 @@
 import { URL } from 'url';
 import https from 'https';
-import http from 'http';
+import axios from 'axios';
 import * as cheerio from 'cheerio';
 
+const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
+const RETRYABLE_ERROR_CODES = new Set([
+  'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ECONNABORTED', 'EPIPE',
+  'EAI_AGAIN', 'ENOTFOUND', 'ERR_NETWORK', 'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_SOCKET', 'ERR_CANCELED'
+]);
+
+// Exponential backoff with jitter: 250ms, 500ms, 1000ms ... (bounded).
+function backoff(attempt) {
+  const base = Math.min(250 * (2 ** attempt), 4000);
+  return new Promise((resolve) => setTimeout(resolve, base + Math.floor(Math.random() * 150)));
+}
+
+/**
+ * Per-session authenticated HTTP client backed by axios.
+ *
+ * Cookie handling is intentionally manual (a Map keyed by domain+path+name with
+ * RFC6265 matching) — this is the exact logic the previous raw-https client
+ * used and it is proven against the real CAS + AUMS cookie chain. What changed
+ * in the migration: the transport is axios (timeouts, clean header handling,
+ * binary bodies via responseType:'arraybuffer'), redirects are followed hop by
+ * hop so every intermediate Set-Cookie is captured, and responses expose both
+ * a utf8 `body` (HTML) and the raw `buffer` (PDF/image downloads).
+ *
+ * One instance per login session → complete session isolation between users.
+ */
 class AuthenticatedHttpClient {
   constructor() {
     this.cookies = new Map();
@@ -12,6 +38,15 @@ class AuthenticatedHttpClient {
       'Accept-Language': 'en-US,en;q=0.9',
       'Connection': 'keep-alive'
     };
+    this.client = axios.create({
+      timeout: 30_000,
+      maxRedirects: 0, // redirects are followed manually below (cookie capture per hop)
+      validateStatus: () => true,
+      responseType: 'arraybuffer',
+      // Matches the previous client's behavior (AUMS/CAS cert chain).
+      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      transitional: { clarifyTimeoutError: true }
+    });
   }
 
   async importCookiesFromPlaywright(playwrightContext) {
@@ -57,115 +92,121 @@ class AuthenticatedHttpClient {
       const path = parsedUrl.pathname;
       const protocol = parsedUrl.protocol;
       const cookieParts = [];
-      
+
       this.cookies.forEach((cookie, key) => {
         if (this.matchesRequest(domain, path, protocol, cookie)) {
           cookieParts.push(cookie.name + '=' + cookie.value);
         }
       });
-      
+
       const cookieHeader = cookieParts.length > 0 ? cookieParts.join('; ') : '';
       return cookieHeader;
-    } catch (error) { 
+    } catch (error) {
       console.log('Error in getCookieHeader: ' + error.message);
-      return ''; 
+      return '';
     }
   }
 
   async request(url, options = {}) {
-    const parsedUrl = new URL(url);
-    const isHttps = parsedUrl.protocol === 'https:';
     const defaultOptions = { method: 'GET', headers: Object.assign({}, this.defaultHeaders), body: null, followRedirects: true, maxRedirects: 10 };
     const mergedOptions = Object.assign({}, defaultOptions, options);
-    const cookieHeader = this.getCookieHeader(url);
-    if (cookieHeader) mergedOptions.headers.Cookie = cookieHeader;
 
-    if (mergedOptions.body && typeof mergedOptions.body === 'object') {
-      if (!mergedOptions.headers['Content-Type']) mergedOptions.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-      if (mergedOptions.method === 'GET') {
-        const searchParams = new URLSearchParams(mergedOptions.body);
-        parsedUrl.search = searchParams.toString();
-        mergedOptions.body = null;
-      } else {
-        mergedOptions.body = new URLSearchParams(mergedOptions.body).toString();
+    let currentUrl = url;
+    let method = mergedOptions.method;
+    let body = mergedOptions.body;
+    let redirectsLeft = mergedOptions.maxRedirects;
+
+    for (;;) {
+      const headers = Object.assign({}, this.defaultHeaders, mergedOptions.headers || {});
+      const cookieHeader = this.getCookieHeader(currentUrl);
+      if (cookieHeader) headers.Cookie = cookieHeader;
+
+      let data = null;
+      if (body && typeof body === 'object') {
+        if (!headers['Content-Type']) headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        data = new URLSearchParams(body).toString();
+      } else if (typeof body === 'string' && body) {
+        data = body;
+        if (!headers['Content-Type']) headers['Content-Type'] = 'application/x-www-form-urlencoded';
       }
-    }
 
-    return new Promise((resolve, reject) => {
-      const requestOptions = {
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port || (isHttps ? 443 : 80),
-        path: parsedUrl.pathname + parsedUrl.search,
-        method: mergedOptions.method,
-        headers: mergedOptions.headers,
-        rejectUnauthorized: false
+      const res = await this.requestWithRetry({
+        url: currentUrl,
+        method,
+        headers,
+        data,
+        responseType: 'arraybuffer'
+      }, mergedOptions);
+
+      const buffer = Buffer.isBuffer(res.data) ? res.data : Buffer.from(res.data || []);
+
+      const setCookieHeaders = res.headers['set-cookie'];
+      if (setCookieHeaders) {
+        this.parseAndStoreCookies(
+          currentUrl,
+          Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders]
+        );
+      }
+
+      const location = res.headers.location;
+      if (mergedOptions.followRedirects && res.status >= 300 && res.status < 400 && location && redirectsLeft > 0) {
+        // Browser-style 302 semantics: switch to GET and drop the body.
+        currentUrl = new URL(location, currentUrl).toString();
+        method = 'GET';
+        body = null;
+        redirectsLeft -= 1;
+        continue;
+      }
+
+      return {
+        status: res.status,
+        headers: res.headers,
+        body: buffer.toString('utf8'),
+        url: currentUrl,
+        buffer
       };
-
-      const httpModule = isHttps ? https : http;
-      const req = httpModule.request(requestOptions, (res) => {
-        let body = Buffer.alloc(0);
-
-        res.on('data', (chunk) => {
-          body = Buffer.concat([body, chunk]);
-        });
-
-        res.on('end', () => {
-          const setCookieHeaders = res.headers['set-cookie'];
-          if (setCookieHeaders) {
-            this.parseAndStoreCookies(
-              url,
-              Array.isArray(setCookieHeaders)
-                ? setCookieHeaders
-                : [setCookieHeaders]
-            );
-          }
-
-          const response = {
-            status: res.statusCode,
-            headers: res.headers,
-            body: body.toString('utf8'),
-            url: res.headers.location || url
-          };
-
-          if (
-            res.statusCode >= 300 &&
-            res.statusCode < 400 &&
-            res.headers.location &&
-            mergedOptions.followRedirects &&
-            mergedOptions.maxRedirects > 0
-          ) {
-            const redirectUrl = new URL(res.headers.location, url).toString();
-
-            const redirectOptions = {
-              ...mergedOptions,
-              method: 'GET',
-              body: null,
-              maxRedirects: mergedOptions.maxRedirects - 1
-            };
-
-            delete redirectOptions.headers['Content-Length'];
-
-            this.request(redirectUrl, redirectOptions)
-              .then(resolve)
-              .catch(reject);
-
-            return;
-          }
-
-          resolve(response);
-        });
-      });
-
-      req.on('error', reject);
-      if (mergedOptions.body) req.write(mergedOptions.body);
-      req.end();
-    });
+    }
   }
 
-  async get(url, options = {}) { 
-    return this.request(url, Object.assign({}, options, { method: 'GET' })); 
+  async get(url, options = {}) {
+    return this.request(url, Object.assign({}, options, { method: 'GET' }));
   }
   async post(url, data = {}, options = {}) { return this.request(url, Object.assign({}, options, { method: 'POST', body: data })); }
+
+  // --- Resilient transport -------------------------------------------------
+  // AUMS/CAS intermittently answers 502/503 under load or drops a socket
+  // mid-flight. Every hop (including each redirect hop) is retried with
+  // exponential backoff + jitter so callers see a single clean response
+  // instead of a transient failure. Opt out per request with { retries: 0 }.
+  isRetryable(error, status) {
+    if (error) {
+      const code = error.code || '';
+      if (RETRYABLE_ERROR_CODES.has(code)) return true;
+      return /timeout|timed out|socket hang up|network error|ECONNRESET/i.test(error.message || '');
+    }
+    return RETRYABLE_STATUSES.has(status);
+  }
+
+  async requestWithRetry(config, options = {}) {
+    const maxRetries = Number.isInteger(options.retries) ? options.retries : 2;
+    let attempt = 0;
+    for (;;) {
+      try {
+        const res = await this.client.request(config);
+        if (attempt < maxRetries && this.isRetryable(null, res.status)) {
+          await backoff(attempt++);
+          continue;
+        }
+        return res;
+      } catch (error) {
+        if (attempt < maxRetries && this.isRetryable(error)) {
+          await backoff(attempt++);
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
 
   parseAndStoreCookies(url, setCookieHeaders) {
     if (!setCookieHeaders || !Array.isArray(setCookieHeaders)) return;

@@ -1,12 +1,19 @@
 ﻿import { AuthenticatedHttpClient } from '../services/httpClient.js';
-import { createContext } from './browser.js';
 
-const AUMS_HOME_URL = 'https://aumscn.amrita.edu/aums/Jsp/Common/index.jsp';
-const CAS_LOGIN_URL = 'https://aumscn.amrita.edu/cas/login?service=https://aumscn.amrita.edu/aums/Jsp/Common/index.jsp';
-const CAS_ORIGIN = 'https://aumscn.amrita.edu';
+// Playwright is loaded ONLY inside the browser fallback (dynamic import) so the
+// default HTTP path never pays the module cost and never launches Chromium.
+// The browser fallback is opt-in: set AUMS_BROWSER_FALLBACK=1 to allow it.
+
+// Portal origin. Overridable so contract tests can run the whole login flow
+// against a local CAS+AUMS stub; production always uses the real portal.
+const AUMS_ORIGIN = (process.env.AUMS_ORIGIN || 'https://aumscn.amrita.edu').replace(/\/+$/, '');
+const AUMS_HOME_URL = `${AUMS_ORIGIN}/aums/Jsp/Common/index.jsp`;
+const CAS_LOGIN_URL = `${AUMS_ORIGIN}/cas/login?service=${AUMS_ORIGIN}/aums/Jsp/Common/index.jsp`;
+const CAS_ORIGIN = AUMS_ORIGIN;
 
 // Auth errors carry authFailure so the fast path returns INVALID_CREDENTIALS
 // immediately instead of retrying through the much slower browser flow.
+
 class CasAuthError extends Error {
   constructor(message) {
     super(message);
@@ -15,9 +22,16 @@ class CasAuthError extends Error {
 }
 
 // Recognized CAS error texts (mirrors the browser-path detection).
+//
+// IMPORTANT: the CAS page ships a HIDDEN #cookiesDisabled warning div
+// (style="display:none") in its markup on EVERY render, so a raw body scan
+// for "cookies disabled" would misreport every failed login as a cookie
+// problem. Only trust that text when the div is actually visible.
 function classifyCasBody(body) {
   const lower = (body || '').toLowerCase();
-  if (lower.includes('cookies disabled') || lower.includes('does not accept cookies')) {
+  const cookiesDiv = lower.match(/<div[^>]*id=["']cookiesdisabled["'][^>]*>/);
+  const cookiesVisible = !!cookiesDiv && !/display\s*:\s*none/.test(cookiesDiv[0]);
+  if (cookiesVisible && (lower.includes('cookies disabled') || lower.includes('does not accept cookies'))) {
     return 'Browser cookies are disabled. Please enable cookies and try again.';
   }
   if (lower.includes('invalid credentials') || lower.includes('incorrect username or password') || lower.includes('login failed')) {
@@ -27,12 +41,15 @@ function classifyCasBody(body) {
   return null;
 }
 
-// Best-effort extraction of CAS's inline error element from raw HTML
-// (same selectors the browser path queries: .errors/.error/#msg/.login-error).
+// Best-effort extraction of CAS's inline error element from raw HTML.
+// Prefer the live #msg element (the actual rendered error); the generic
+// .errors match comes second because the hidden #cookiesDisabled div also
+// carries class="errors".
 function extractCasErrorHtml(body) {
-  const m = (body || '').match(/class="[^"]*(?:errors?|login-error)[^"]*"[^>]*>([^<]{1,300})</i)
-    || (body || '').match(/id="msg"[^>]*>([^<]{1,300})</i);
-  return m ? m[1].trim() : null;
+  const msg = (body || '').match(/id="msg"[^>]*>([^<]{1,300})</i);
+  if (msg && msg[1].trim()) return msg[1].trim();
+  const m = (body || '').match(/class="[^"]*(?:errors?|login-error)[^"]*"[^>]*>([^<]{1,300})</i);
+  return m && m[1].trim() ? m[1].trim() : null;
 }
 
 // === FAST PATH: CAS over plain HTTP (no browser) ============================
@@ -66,143 +83,12 @@ async function casLoginViaHttp(username, password) {
   return { httpClient, landingUrl: finalUrl };
 }
 
-// Open a Playwright context carrying the HTTP-verified session cookies and
-// load the AUMS frameset (data modules need a real page/frames to operate on).
-async function openAumsSession(httpClient, phase, t0, landingUrl) {
-  const context = await createContext();
-  try {
-    const cookies = [...httpClient.cookies.values()]
-      // Skip cookies that are already expired (e.g. CASPRIVACY Max-Age=10) —
-      // a real browser would not send them either.
-      .filter((ck) => !ck.expires || new Date(ck.expires) > new Date())
-      .map((ck) => ({
-        name: ck.name,
-        value: ck.value,
-        domain: ck.domain,
-        path: ck.path || '/',
-        ...(ck.expires ? { expires: Math.floor(new Date(ck.expires).getTime() / 1000) } : {}),
-        secure: !!ck.secure,
-        httpOnly: !!ck.httpOnly,
-        sameSite: ck.sameSite || 'Lax',
-      }));
-    await context.addCookies(cookies);
-
-    const page = await context.newPage();
-    // Diagnostics: log any request that takes >700ms so slow logins are
-    // attributable from the logs. Guarded: an exception inside a Playwright
-    // event handler is an uncaught exception and would kill the whole server —
-    // diagnostics must never do that.
-    const reqStart = new Map();
-    page.on('request', (req) => {
-      try { reqStart.set(req, Date.now()); } catch { /* diagnostic only */ }
-    });
-    const logSlow = (req, status) => {
-      try {
-        const start = reqStart.get(req);
-        const ms = start ? Date.now() - start : -1;
-        if (ms > 700) console.log(`[LOGIN][+${((Date.now() - t0) / 1000).toFixed(1)}s] SLOW ${status} ${req.resourceType()} ${ms}ms ${req.url().slice(0, 110)}`);
-      } catch { /* diagnostic only */ }
-    };
-    page.on('requestfinished', (req) => logSlow(req, 'done'));
-    page.on('requestfailed', (req) => logSlow(req, 'failed'));
-
-    const tNav = Date.now();
-    // 'commit' (first byte) instead of 'domcontentloaded': DCL was measured at
-    // ~8s while the document response itself arrived in ~0.5s. We only need
-    // the final URL and the frames tree below — both waited for directly.
-    await page.goto(landingUrl || AUMS_HOME_URL, { waitUntil: 'commit', timeout: 30000 });
-
-    // Ride out the landing's ONE-TIME init bounce. Verified timeline: the
-    // frameset loads, its JS (dhtmlx layout manager) rebuilds the frame
-    // structure ~3s in, then the top window bounces through the Sakai portal
-    // (/index.jsp -> /portal/login -> sakai-login-tool -> CAS TGC SSO ->
-    // /portal) and lands back on the frameset — ~6s of churn in which EVERY
-    // child frame is detached and re-created. Any data operation racing this
-    // window loses its frame mid-action ("Frame was detached" — this is what
-    // broke /attendance/report and emptied the calendar). Aborting the bounce
-    // navigation is NOT safe (Chromium replaces the frameset with an error
-    // page), so we wait for it: detect the URL leaving /aums/, then wait for
-    // the return. Capped: on a landing that never bounces (already-initiated
-    // page), we proceed after the cap.
-    const bounceDeadline = Date.now() + 6500;
-    while (Date.now() < bounceDeadline && page.url().includes('/aums/')) {
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
-    if (!page.url().includes('/aums/')) {
-      const backDeadline = Date.now() + 10000;
-      while (Date.now() < backDeadline && !page.url().includes('/aums/')) {
-        await new Promise((resolve) => setTimeout(resolve, 150));
-      }
-      console.log(`[LOGIN][+${((Date.now() - t0) / 1000).toFixed(1)}s] portal bounce completed`);
-    }
-    console.log(`[LOGIN][+${((Date.now() - t0) / 1000).toFixed(1)}s] goto commit took ${Date.now() - tNav}ms | browser frames: ${page.frames().length}`);
-    phase('AUMS landing committed (cookie session)');
-
-    // If the injected session didn't take, we land on the CAS form instead.
-    // (If only the TGC survived, CAS SSO already bounced us back to AUMS.)
-    if (!page.url().includes('/aums/')) {
-      throw new Error(`Landing bounced to ${page.url().slice(0, 100)}`);
-    }
-
-    // Bounded frames settle. Poll page.frames() from the DRIVER side instead
-    // of evaluating window.frames inside the page: in-page evaluations can be
-    // dropped while the landing renderer is busy, whereas the driver-side
-    // frame tree stays accurate and the bound honest.
-    const settleDeadline = Date.now() + 10000;
-    while (Date.now() < settleDeadline && page.frames().length < 2) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-
-    // Wait (bounded) for each child frame's document to actually finish
-    // loading. The frameset assigns final-looking URLs immediately, but the
-    // maincontentframe runs a server redirect chain (StaffMainPage.jsp) for
-    // several seconds after that. If a data request navigates
-    // maincontentframe while that chain is still in flight, the pending
-    // redirect replaces our navigation and detaches the frame mid-operation
-    // (observed as "locator.selectOption: Frame was detached" on
-    // /attendance/report — which made the calendar come back empty).
-    // Waiting for child 'load' hands the data modules a page whose default
-    // navigation has fully completed.
-    const loadDeadline = Date.now() + 9000;
-    await Promise.all(
-      page.frames().slice(1).map((frame) =>
-        frame.waitForLoadState('load', { timeout: Math.max(1000, loadDeadline - Date.now()) }).catch(() => {})
-      )
-    );
-
-    // Final quiet check: frame URLs must hold still briefly (redirect churn
-    // settled) before we hand the page over.
-    const quietDeadline = Date.now() + 4000;
-    let lastSignature = null;
-    let stableSince = Date.now();
-    while (Date.now() < quietDeadline) {
-      const signature = page.frames().map((f) => { try { return f.url(); } catch { return ''; } }).join('|');
-      if (signature !== lastSignature) {
-        lastSignature = signature;
-        stableSince = Date.now();
-      } else if (Date.now() - stableSince >= 500) {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 250));
-    }
-    console.log(`[LOGIN][+${((Date.now() - t0) / 1000).toFixed(1)}s] after settle: browser frames=${page.frames().length} (loaded+stable)`);
-    phase('frames settled');
-
-    // Re-sync any cookies the AUMS landing set/rotated in the browser so the
-    // HTTP client and the browser context stay identical.
-    await httpClient.importCookiesFromPlaywright(context);
-    return { context, page };
-  } catch (error) {
-    await context.close().catch(() => {});
-    throw error;
-  }
-}
-
 // === FALLBACK: full browser-driven login ====================================
 // Used when the HTTP fast path hits something unexpected (not bad credentials):
 // network oddities, CAS markup changes, landing verification failure. This is
 // the original, proven flow.
 async function loginViaBrowser(username, password, t0, phase) {
+  const { createContext } = await import('./browser.js');
   const context = await createContext();
   phase('context ready (browser launch/reuse)');
   const page = await context.newPage();
@@ -329,7 +215,7 @@ async function loginViaBrowser(username, password, t0, phase) {
     await httpClient.importCookiesFromPlaywright(context);
     phase('done');
 
-    return { success: true, context, page, httpClient };
+    return { success: true, mode: 'browser', context, page, httpClient };
   } catch (error) {
     await page.close().catch(() => {});
     await context.close();
@@ -363,42 +249,78 @@ async function loginViaBrowser(username, password, t0, phase) {
   }
 }
 
+// Transient upstream conditions worth one quick retry before giving up on the
+// HTTP path (AUMS/CAS occasionally answers 502/503 under load or drops a socket).
+function isTransientLoginError(error) {
+  if (!error) return false;
+  if (error.authFailure) return false; // bad credentials are definitive
+  const code = error.code || '';
+  if (['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'EPIPE', 'ENOTFOUND', 'ECONNABORTED', 'ERR_NETWORK'].includes(code)) return true;
+  if (/HTTP 50[234]|HTTP 429|timeout|timed out|socket hang up|network/i.test(error.message || '')) return true;
+  return false;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * HTTP-only login: CAS form over plain HTTP + AUMS landing verification.
+ * Never touches Playwright. Used by the main login flow and by the silent
+ * re-login that recovers an expired HTTP session.
+ */
+export async function httpLoginOnly(username, password) {
+  const { httpClient, landingUrl } = await casLoginViaHttp(username, password);
+
+  const probe = await httpClient.get(AUMS_HOME_URL);
+  const probeIsLogin = !probe.body ||
+    probe.body.includes('name="password"') ||
+    /<title[^>]*>\s*CAS\s*Login/i.test(probe.body);
+  if (probeIsLogin) throw new Error('AUMS rejected the HTTP session cookies');
+
+  console.log('[LOGIN] HTTP-only session established | auth cookies:', httpClient.cookies.size);
+  return { httpClient, landingUrl };
+}
+
 export async function login(username, password) {
   const t0 = Date.now();
   const phase = (label) => console.log(`[LOGIN][+${((Date.now() - t0) / 1000).toFixed(1)}s] ${label}`);
 
-  // FAST PATH: plain-HTTP CAS login, then load AUMS with the verified cookies.
-  let httpClient = null;
-  let session = null;
-  try {
-    const httpLogin = await casLoginViaHttp(username, password);
-    httpClient = httpLogin.httpClient;
-    phase('CAS HTTP login done');
-    session = await openAumsSession(httpClient, phase, t0, httpLogin.landingUrl);
-  } catch (error) {
-    if (error && error.authFailure) {
-      console.error('[LOGIN] Auth error:', error.message);
-      return { success: false, code: 'INVALID_CREDENTIALS', error: error.message };
+  // HTTP-FIRST: CAS over plain HTTP, then verify the cookie session actually
+  // opens an AUMS screen. When this succeeds NO Playwright context exists —
+  // every data route runs on the per-session cookie jar alone.
+  let lastHttpError = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const { httpClient } = await httpLoginOnly(username, password);
+      phase('done');
+      return { success: true, mode: 'http', httpClient };
+    } catch (error) {
+      lastHttpError = error;
+      if (error && error.authFailure) {
+        console.error('[LOGIN] Auth error:', error.message);
+        return { success: false, code: 'INVALID_CREDENTIALS', error: error.message };
+      }
+      if (attempt < 2 && isTransientLoginError(error)) {
+        phase(`HTTP attempt ${attempt} transient failure (${error.message}) — retrying`);
+        await sleep(400);
+        continue;
+      }
+      break;
     }
-    console.warn(`[LOGIN] HTTP fast path failed (${error.message}) — falling back to browser login`);
-    httpClient = null;
-    session = null;
   }
 
-  if (!session) {
-    return loginViaBrowser(username, password, t0, phase);
+  // Playwright fallback is opt-in: it costs a Chromium launch and the package
+  // is no longer a default dependency. Everything AUMS offers to this app is
+  // reachable over plain HTTP, so the browser path is a last resort only.
+  if (process.env.AUMS_BROWSER_FALLBACK !== '1') {
+    console.warn(`[LOGIN] HTTP sign-in failed (${lastHttpError.message}) — browser fallback disabled (set AUMS_BROWSER_FALLBACK=1 to allow it)`);
+    return {
+      success: false,
+      code: 'AUMS_UNAVAILABLE',
+      error: 'AUMS did not accept the sign-in request. Please try again in a moment.'
+    };
   }
-
-  const { context, page } = session;
-  const cookies = await context.cookies();
-  const aumsCookies = cookies.filter((c) => c.domain.includes('aumscn.amrita.edu'));
-  console.log('[LOGIN] Login successful via HTTP fast path | Auth cookies:', aumsCookies.length, aumsCookies.map((c) => c.name).join(', '));
-  if (aumsCookies.length === 0) {
-    await context.close().catch(() => {});
-    return loginViaBrowser(username, password, t0, phase);
-  }
-  phase('done');
-  return { success: true, context, page, httpClient };
+  console.warn(`[LOGIN] HTTP fast path failed (${lastHttpError.message}) — falling back to browser login`);
+  return loginViaBrowser(username, password, t0, phase);
 }
 
 export default login;

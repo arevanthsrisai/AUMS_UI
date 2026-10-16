@@ -1,4 +1,21 @@
-﻿import { chromium } from 'playwright';
+﻿// Playwright is an OPTIONAL, lazily-loaded dependency of this backend. Nothing
+// in the default (HTTP) runtime path imports it; it is only needed when the
+// explicit browser fallback is enabled (AUMS_BROWSER_FALLBACK=1) AND the HTTP
+// login path failed. This keeps the default install and boot footprint light.
+
+async function loadChromium() {
+  try {
+    const { chromium } = await import('playwright');
+    return chromium;
+  } catch (error) {
+    const err = new Error(
+      'Playwright is not installed. The browser fallback (AUMS_BROWSER_FALLBACK=1) requires it — ' +
+      'run `npm i playwright` in backend/ to enable it. Original error: ' + error.message
+    );
+    err.code = 'PLAYWRIGHT_MISSING';
+    throw err;
+  }
+}
 
 let browser = null;
 let launchPromise = null;
@@ -16,6 +33,7 @@ export async function getBrowser() {
       try { await browser.close(); } catch { /* already dead */ }
       browser = null;
     }
+    const chromium = await loadChromium();
     browser = await chromium.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox']

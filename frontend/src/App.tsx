@@ -15,6 +15,7 @@ import { SpotlightSearch } from './components/SpotlightSearch';
 const LazyDashboardPage = lazy(() => import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })));
 const LazyAttendancePage = lazy(() => import('./pages/AttendancePage').then((m) => ({ default: m.AttendancePage })));
 const LazyGpaPage = lazy(() => import('./pages/GpaPage').then((m) => ({ default: m.GpaPage })));
+const LazyMarksPage = lazy(() => import('./pages/MarksPage').then((m) => ({ default: m.MarksPage })));
 const LazyCalendarPage = lazy(() => import('./pages/CalendarPage').then((m) => ({ default: m.CalendarPage })));
 const LazySettingsPage = lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
@@ -92,7 +93,7 @@ export default function App() {
   const [active, setActive] = useState<NavKey>(() => {
     const ui = loadUiState();
     const v = ui?.active;
-    const valid = v === 'dashboard' || v === 'attendance' || v === 'gpa' || v === 'calendar' || v === 'settings' ? v : 'dashboard';
+    const valid = v === 'dashboard' || v === 'attendance' || v === 'gpa' || v === 'marks' || v === 'calendar' || v === 'settings' ? v : 'dashboard';
     return valid as NavKey;
   });
   const [profile, setProfile] = useState<StudentProfile | null>(null);
@@ -244,18 +245,15 @@ export default function App() {
     }
   }, [sessionId]);
 
-  // Fetch the SGPA/CGPA summary for the student's CURRENT semester (computed
-  // from the batch year + manual override) once the profile — and therefore
-  // the batch — is known. Previously this hardcoded semester=1, which made
-  // "Latest SGPA" show a stale first-semester value.
+  // The dashboard's GPA summary always shows Semester 1 (product decision;
+  // CGPA is semester-independent). Fetched as soon as a session exists — no
+  // need to wait for the profile/batch to compute the current semester.
   const gpaFetchedRef = useRef('');
   useEffect(() => {
-    if (!sessionId || !currentSemester) return;
-    const key = `${sessionId}:${currentSemester}`;
-    if (gpaFetchedRef.current === key) return;
-    gpaFetchedRef.current = key;
-    loadGpaSummary(currentSemester);
-  }, [sessionId, currentSemester, loadGpaSummary]);
+    if (!sessionId || gpaFetchedRef.current === sessionId) return;
+    gpaFetchedRef.current = sessionId;
+    loadGpaSummary(1);
+  }, [sessionId, loadGpaSummary]);
 
   // Restore cached data instantly, then validate the session and refresh.
   useEffect(() => {
@@ -396,6 +394,13 @@ export default function App() {
           />
         )}
         {active === 'calendar' && <LazyCalendarPage sessionId={sessionId} preferredSemester={currentSemester ?? undefined} />}
+        {active === 'marks' && (
+          <LazyMarksPage
+            sessionId={sessionId}
+            onSessionExpired={handleSessionExpired}
+            preferredSemester={currentSemester ?? undefined}
+          />
+        )}
         {active === 'settings' && <LazySettingsPage onLogout={handleLogout} profile={profile} />}
         </Suspense>
       </AppShell>

@@ -84,10 +84,11 @@ export function CourseDetailsModal({ sessionId, semesterId, subject, onClose, on
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const load = async () => {
+  const load = async (force = false) => {
     // Guard: React 18 StrictMode double-invokes effects in dev, which would
-    // otherwise fire the course report request twice against AUMS.
-    if (loadedRef.current) return;
+    // otherwise fire the course report request twice against AUMS. Explicit
+    // retries (the error-state Retry button) bypass the guard via `force`.
+    if (loadedRef.current && !force) return;
     loadedRef.current = true;
     setLoading(true);
     setError(null);
@@ -228,7 +229,7 @@ export function CourseDetailsModal({ sessionId, semesterId, subject, onClose, on
                 <p className="mt-1 text-sm text-ink-faint">{error}</p>
               </div>
               <div className="flex gap-3">
-                <button onClick={load} className="btn-primary"><RotateCcw className="h-4 w-4" /> Retry</button>
+                <button onClick={() => load(true)} className="btn-primary"><RotateCcw className="h-4 w-4" /> Retry</button>
                 <button onClick={onClose} className="btn-secondary">Close</button>
               </div>
             </div>
@@ -349,7 +350,6 @@ export function CourseDetailsModal({ sessionId, semesterId, subject, onClose, on
                           {dayEvents.slice(0, 3).map((e, idx) => (
                             <span key={idx} className={`h-1.5 w-1.5 rounded-full ${STATUS_COLORS[e.status] || 'bg-slate-400'}`} />
                           ))}
-                          {dayEvents.length === 0 && <span className="h-1.5 w-1.5 rounded-full bg-transparent" />}
                         </span>
                       </button>
                     );
@@ -362,7 +362,6 @@ export function CourseDetailsModal({ sessionId, semesterId, subject, onClose, on
                 <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Present</span>
                 <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-rose-500" /> Absent</span>
                 <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> OD (as Present)</span>
-                <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-slate-300" /> No class</span>
               </div>
 
               {/* Selected day */}

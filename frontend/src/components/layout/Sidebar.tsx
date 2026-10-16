@@ -1,8 +1,8 @@
 ﻿import { motion } from 'framer-motion';
-import { LayoutDashboard, CalendarDays, GraduationCap, CalendarRange, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, GraduationCap, CalendarRange, Settings, LogOut, FileSpreadsheet } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-export type NavKey = 'dashboard' | 'attendance' | 'gpa' | 'calendar' | 'settings';
+export type NavKey = 'dashboard' | 'attendance' | 'gpa' | 'marks' | 'calendar' | 'settings';
 
 export interface SidebarProfile {
   name?: string;
@@ -23,6 +23,7 @@ const navItems: { key: NavKey; label: string; icon: React.ElementType }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'attendance', label: 'Attendance', icon: CalendarDays },
   { key: 'gpa', label: 'GPA', icon: GraduationCap },
+  { key: 'marks', label: 'Marks', icon: FileSpreadsheet },
   { key: 'calendar', label: 'Calendar', icon: CalendarRange },
   { key: 'settings', label: 'Settings', icon: Settings },
 ];

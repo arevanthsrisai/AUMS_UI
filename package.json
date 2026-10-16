@@ -1,0 +1,18 @@
+{
+  "name": "aums-ui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AUMS UI — single-folder deployable: Express serves the API (/api) and the built frontend from one process.",
+  "scripts": {
+    "setup": "npm --prefix backend ci && npm --prefix frontend ci",
+    "build": "npm --prefix frontend run build",
+    "start": "node backend/server.js",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "test": "node scripts/verify.mjs",
+    "test:fast": "node scripts/verify.mjs --fast"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -2,12 +2,11 @@ import { useEffect, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   ArrowRight, TrendingUp, BookOpen, Award, BarChart3,
-  AlertTriangle, ShieldCheck, Clock, User, RefreshCw,
+  AlertTriangle, ShieldCheck, Clock, User, RefreshCw, Plane,
 } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { AnimatedNumber } from '../components/ui/AnimatedNumber';
 import { Badge } from '../components/ui/Badge';
-import { ProgressRing } from '../components/ui/ProgressRing';
 import { Skeleton } from '../components/ui/Skeleton';
 import type { NavKey } from '../components/layout/Sidebar';
 import type { StudentProfile, GpaSummaryData, ProfileStatus } from '../App';
@@ -156,8 +155,19 @@ export function DashboardPage({ sessionId, profile, profileStatus, onRetryProfil
   }, [attendance]);
 
   const attn = subjRisks[0]; // most at-risk subject
-  const safeCount = subjRisks.filter((s) => s.level === 'SAFE').length;
   const dangerCount = subjRisks.filter((s) => s.level === 'AT_RISK' || s.level === 'CRITICAL').length;
+
+  // Bunk budget — the actionable inverse of "overall attendance": how many
+  // classes can still be skipped across every subject while staying >= target.
+  // Collapses to 0 the moment any single subject dips below target, which is
+  // exactly the case the old aggregate percentage hid behind a green ring.
+  const bunkBudget = useMemo(() => {
+    if (!subjRisks.length) return null;
+    const slack = subjRisks.reduce((s, x) => s + (x.bunkable ?? 0), 0);
+    const target = loadAttendanceTarget();
+    const failing = subjRisks.filter((s) => s.level === 'AT_RISK' || s.level === 'CRITICAL');
+    return { slack, target, failing: failing.length };
+  }, [subjRisks]);
 
   const sgpa = useMemo(() => {
     if (gpaSummary?.sgpa == null || gpaSummary.sgpa === '') return null;
@@ -260,7 +270,7 @@ export function DashboardPage({ sessionId, profile, profileStatus, onRetryProfil
           </div>
           <div className="px-4 py-2.5 text-center">
             <p className="text-lg font-bold text-ink">{gpaSummary?.sgpa || '—'}</p>
-            <p className="text-[11px] text-ink-faint">SGPA{currentSemester ? ` · S${currentSemester}` : ''}</p>
+            <p className="text-[11px] text-ink-faint">SGPA{gpaSummary?.semester ? ` · S${gpaSummary.semester}` : ''}</p>
           </div>
         </div>
       </header>
@@ -289,21 +299,32 @@ export function DashboardPage({ sessionId, profile, profileStatus, onRetryProfil
 
       {/* === "How am I doing?" row === */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Overall attendance */}
+        {/* Bunk budget — replaces the old overall-attendance ring. A single
+            aggregate % reads fine while a subject is quietly failing; the
+            number of classes you can still skip does not. */}
         <motion.div variants={stagger} custom={1} initial="hidden" animate="show">
           <Card interactive onClick={() => onNavigate('attendance')} className="flex items-center gap-4">
-            <ProgressRing value={overall} size={76} stroke={7} label="Overall attendance" />
+            <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${bunkBudget && bunkBudget.failing > 0 ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+              <Plane className="h-6 w-6" />
+            </div>
             <div className="min-w-0">
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
-                Attendance
+              <p className="flex items-baseline gap-1.5">
+                <span className="text-2xl font-bold text-ink">{bunkBudget ? bunkBudget.slack : '—'}</span>
+                <span className="text-sm text-ink-faint">
+                  {bunkBudget && bunkBudget.slack === 1 ? 'class' : 'classes'}
+                </span>
                 {!attendanceFresh && (
                   <RefreshCw className="h-3.5 w-3.5 animate-spin text-ink-faint" aria-label="Refreshing" />
                 )}
               </p>
               <p className="truncate text-xs text-ink-faint">
-                {subjRisks.length ? `${safeCount} safe · ${dangerCount} need attention` : 'Semester ' + latestSemester}
+                {!bunkBudget
+                  ? 'Semester ' + latestSemester
+                  : bunkBudget.failing > 0
+                    ? `of slack in safe subjects · ${bunkBudget.failing} below ${bunkBudget.target}%`
+                    : `to bunk and stay ≥${bunkBudget.target}% everywhere`}
               </p>
-              <p className="mt-1 text-xs font-medium text-brand-500">Details →</p>
+              <p className="mt-1 text-xs font-medium text-brand-500">Planner →</p>
             </div>
           </Card>
         </motion.div>
@@ -349,7 +370,7 @@ export function DashboardPage({ sessionId, profile, profileStatus, onRetryProfil
               <p className="text-2xl font-bold text-ink">
                 {sgpa !== null ? <AnimatedNumber value={sgpa} decimals={2} /> : '—'}
               </p>
-              <p className="text-sm text-ink-faint">SGPA · Sem {gpaSummary?.semester || latestSemester}</p>
+              <p className="text-sm text-ink-faint">SGPA · Sem {gpaSummary?.semester || '1'}</p>
             </div>
           </Card>
         </motion.div>

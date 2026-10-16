@@ -146,5 +146,46 @@ app.get('/gpa', async (req, res) => {
   res.json({ success: true, currentCgpa: entry.cgpa, semesterSgpa: entry.sgpa, semester: String(semester), grades: entry.grades });
 });
 
+// --- Published marks (same shape as GET /marks on server.js) --------------
+const MARK_COURSES = ['CS3021', 'CS3051', 'MA2011', 'CS3003', 'CS3991'];
+const MARK_EXAMS = [
+  { name: 'IA 1', period: '2026-27 ODD', type: 'Regular' },
+  { name: 'IA 2', period: '2026-27 ODD', type: 'Regular' },
+  { name: 'Assignment', period: '2026-27 ODD', type: 'Assignment' },
+  { name: 'SEE', period: '2026-27 ODD', type: 'University' },
+];
+const MARK_SEMESTERS = Array.from({ length: 8 }, (_, i) => ({ id: String(717 + i), name: String(i + 1) }));
+
+app.get('/marks', async (req, res) => {
+  await delay(180);
+  if (!SESSIONS.has(req.headers['x-session-id'])) {
+    return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', error: 'Session expired' });
+  }
+  const semester = parseInt(req.query.semester) || 1;
+  // Deterministic matrix with a realistic mix of published / NP / blank cells.
+  const exams = MARK_EXAMS.map((e, ei) => {
+    const marks = {};
+    MARK_COURSES.forEach((c, ci) => {
+      if (e.name === 'SEE') {
+        marks[c] = semester >= 7 ? 'NP' : 55 + ((semester * 3 + ci * 7) % 36);
+      } else if ((ci + ei + semester) % 7 === 0) {
+        marks[c] = 'NP'; // not published yet
+      } else if ((ci * 3 + ei + semester) % 11 === 0) {
+        marks[c] = null; // component not applicable
+      } else {
+        marks[c] = ((semester + ei * 2 + ci) % 16) + 4; // 4..19 / 20
+      }
+    });
+    return { ...e, marks };
+  });
+  res.json({
+    success: true,
+    semester: String(semester),
+    semesters: MARK_SEMESTERS,
+    courses: MARK_COURSES,
+    exams,
+  });
+});
+
 const PORT = process.env.MOCK_PORT || 3002;
 app.listen(PORT, () => console.log(`Mock AUMS backend on :${PORT}`));

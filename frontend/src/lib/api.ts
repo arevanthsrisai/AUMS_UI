@@ -1,8 +1,12 @@
-﻿export const API_BASE =
-  import.meta.env.VITE_API_BASE ??
-  (import.meta.env.DEV
-    ? "http://localhost:3001"
-    : "/api");
+﻿// Dev: split origins — Vite on :5173, Express on :3001 (overridable via
+// VITE_API_BASE for pointing at the mock backend, etc.).
+// Prod: ALWAYS same-origin "/api" — the Express server serves both the built
+// frontend and the API (combined deployment, e.g. Render). Hard-coding the
+// prod branch (instead of honoring a leftover VITE_API_BASE) prevents a dev
+// .env.local from being baked into a production bundle.
+export const API_BASE = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_BASE ?? "http://localhost:3001")
+  : "/api";
 
 /**
  * Fetch with a timeout. If the server doesn't respond within `ms` milliseconds,

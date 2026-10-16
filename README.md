@@ -79,16 +79,12 @@ AUMS_UI/
 ### 1. Clone & Install
 
 ```bash
-# Backend
-cd backend
-npm install
-
-# Frontend
-cd ../frontend
-npm install
+npm run setup   # from the repo root: npm ci in both backend/ and frontend/
 ```
 
-### 2. Configure Environment
+(Equivalently: `cd backend && npm install`, then `cd ../frontend && npm install`.)
+
+### 2. Configure (optional)
 
 ```bash
 # Backend (optional)
@@ -131,17 +127,111 @@ npm run dev
 - Production build → `/api` (proxied by nginx)
 - `VITE_API_BASE` overrides both
 
-## Production Deployment
+Credentials are submitted through the login request body at runtime — the server never reads them from its own environment.
 
-### Frontend Build
+## API Endpoints
+
+All endpoints except `POST /login` require the `x-session-id` header returned by login.
+
+| Method | Endpoint | Body / Query | Description |
+|--------|----------|--------------|-------------|
+| POST | `/login` | `{ username, password }` | Authenticate; returns `{ sessionId }` |
+| POST | `/logout` | — | Destroy session and invalidate the AUMS/CAS session |
+| GET | `/profile` | — | Student profile (name, roll, branch, photo, …) |
+| GET | `/attendance` | — | Available semesters |
+| POST | `/attendance/report` | `{ semesterId }` | Attendance summary with per-subject totals |
+| POST | `/attendance/course` | `{ semesterId, courseId }` | Daily course attendance (events + stats + raw PDF). Accepts a numeric course id or a course code like `23CSE102` |
+| GET | `/course-attendance/pdf` | `?semesterId=&courseId=` | The raw course attendance PDF |
+| GET | `/gpa` | `?semester=` | CGPA, semester SGPA, and course grades |
+| GET | `/marks` | `?semester=` | Published exam marks matrix (courses, exams, per-cell marks / NP / blank) |
+
+Error responses are JSON with `code` values the frontend handles: `INVALID_CREDENTIALS`, `SESSION_EXPIRED`, `AUMS_TIMEOUT`, `AUMS_UNAVAILABLE`, `INTERNAL_ERROR`.
+
+## Verification and Tests
+
+The project ships a single verification harness that runs every check that matters:
 
 ```bash
-cd frontend
-npm run build
-# Output: frontend/dist/
+node scripts/verify.mjs          # everything
+node scripts/verify.mjs --fast   # skip the frontend production build
 ```
 
-### Nginx Config (example)
+It runs, in order: backend syntax checks (`node --check` on every source file), a **Playwright guard** (asserts the default path never statically imports `playwright`), the backend test suites, and the frontend production build (`tsc && vite build`). Exit code `0` means everything passed; any failure prints the failing step's output and exits non-zero, so it can gate CI or a pre-commit hook.
+
+Run just the backend tests:
+
+```bash
+cd backend && npm test
+# or directly:
+node --test tests/test_optimizations.mjs tests/test_http_client.mjs
+```
+
+The suites are credential-free. `tests/test_http_client.mjs` spins up a local stub AUMS server and drives the real HTTP clients against it (using the real fixtures in `tests/fixtures/`) to verify CAS login, cookie handling, form POSTs, PDF parsing, the published-marks matrix, and session-expiry detection. `tests/test_optimizations.mjs` covers caching, page-state detection, and a server smoke test.
+
+### Live end-to-end (needs real credentials)
+
+```bash
+cd backend
+AUMS_USERNAME=... AUMS_PASSWORD=... node test_e2e.js
+```
+
+This exercises login, profile, GPA, marks, attendance, course attendance, logout, and concurrent-session isolation against the real portal.
+
+## Frontend Notes
+
+- **Session persistence** — the session id and fetched data live in `localStorage` under a versioned namespace (`aums:session:1`, `aums:ui:1`, `aums:cache:1:<key>`), with a 15-minute freshness TTL. Reload restores cached data instantly, then revalidates.
+- **Offline-first** — attendance, GPA, profile, and course data hydrate from cache and refresh in the background (stale-while-revalidate).
+- **Attendance intelligence** — risk levels, bunkable/reachable class counts, and projections are computed client-side in [`frontend/src/lib/attendanceMath.ts`](frontend/src/lib/attendanceMath.ts); they never cost an AUMS request. The attendance target slider recomputes instantly for the same reason.
+- **Responsive** — full sidebar on desktop, collapsible on tablet, drawer navigation on mobile.
+- **TypeScript** — strict mode, no unused locals/parameters.
+
+### Frontend scripts
+
+```bash
+npm run dev      # Vite dev server
+npm run build    # type-check + production build → frontend/dist/
+npm run preview  # preview the production build
+```
+
+### Backend scripts
+
+```bash
+npm run dev      # node --watch server.js
+npm start        # node server.js
+npm test         # node --test on both suites
+npm run verify   # full harness (delegates to scripts/verify.mjs)
+```
+
+## Production Deployment — one folder, one process
+
+The repo root is a single deployable unit. A root [`package.json`](package.json)
+drives both sub-projects, and the Express server serves the built frontend
+(`frontend/dist`) **and** the JSON API under `/api` from the same origin — no
+nginx, no second service.
+
+| Root script | What it does |
+|-------------|--------------|
+| `npm run setup` | `npm ci` in both `backend/` and `frontend/` |
+| `npm run build` | type-check + production build → `frontend/dist/` |
+| `npm start` | combined server: `/api` + static frontend + `/health` |
+| `npm test` | full verification harness |
+
+### Deploy on Render
+
+1. Push this repo to GitHub.
+2. Render → **New → Blueprint** → select the repo. [`render.yaml`](render.yaml)
+   defines a single web service: `buildCommand: npm run setup && npm run build`,
+   `startCommand: npm start`, `healthCheckPath: /health`.
+3. Render assigns `PORT` automatically; `backend/server.js` binds it
+   (dual-stack, `0.0.0.0`/`::`) and serves everything on one public URL.
+
+No environment variables are required to boot — the HTTP path to AUMS needs no
+browser install (see `AUMS_BROWSER_FALLBACK` above).
+
+### Alternative: split static + API behind nginx
+
+Serve `frontend/dist/` statically and proxy `/api/` to a separately running
+backend. Example nginx config:
 
 ```nginx
 server {
@@ -166,7 +256,7 @@ server {
 }
 ```
 
-The frontend production build automatically uses `/api` as the base URL, which nginx proxies to the backend.
+The production build uses `/api` as its base URL, so the `location /api/` block above is what connects it to the backend. (With the root `npm start` deployment the Express server already answers `/api` itself — the nginx split is only needed if you host the static files separately.)
 
 ## Debug Directory
 

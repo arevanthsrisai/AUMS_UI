@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE, fetchWithTimeout, isSessionExpired } from '../lib/api';
 import { loadCache, saveCache, cacheKey } from '../lib/storage';
 
@@ -19,6 +19,10 @@ export interface AttendanceSubject {
 export interface AttendanceData {
   semester?: string;
   subjects?: AttendanceSubject[];
+  /** AUMS semester id the data belongs to — consumers compare it against the
+   *  currently selected semester so a slow response never renders under the
+   *  wrong selection. */
+  semesterId?: string;
 }
 
 export interface CourseEvent {
@@ -49,12 +53,13 @@ const semesterCache = new Map<string, Semester[]>();
 
 // Stale-while-revalidate for course events: CalendarPage hydrates its grid
 // from the localStorage cache below so the UI is interactive instantly while
-// fresh data is fetched; results are reconciled afterwards.
+// fresh data is fetched; results are reconciled afterwards. Stale-but-valid
+// entries are returned too — showing yesterday's calendar beats a skeleton.
 export function hydrateCalendarCache(sessionId: string, semesterId: string, subjectIds: string[]): Array<CourseAttendanceResponse & { courseId: string }> | null {
   const out: Array<CourseAttendanceResponse & { courseId: string }> = [];
   for (const courseId of subjectIds) {
     const cached = loadCache<CourseAttendanceResponse & { courseId?: string }>(cacheKey.course(sessionId, semesterId, courseId));
-    if (cached && (cached.fresh || !cached.data?.success)) {
+    if (cached?.data?.success && cached.data.events) {
       out.push({ ...cached.data, courseId });
     }
   }
@@ -79,7 +84,14 @@ function pickSemester(semesters: Semester[], preferredSemester?: number): string
 
 export function useAttendanceData(sessionId: string, preferredSemester?: number) {
   const [semesters, setSemesters] = useState<Semester[]>(() => semesterCache.get(sessionId) || []);
-  const [selectedSemester, setSelectedSemester] = useState<string>('');
+  const [selectedSemester, setSelectedSemesterState] = useState<string>('');
+  // The student's own dropdown choice always wins over the auto-picked
+  // "current semester", so a late-resolving profile can't stomp on it.
+  const userPickedRef = useRef(false);
+  const setSelectedSemester = useCallback((id: string) => {
+    userPickedRef.current = true;
+    setSelectedSemesterState(id);
+  }, []);
   const [attendance, setAttendance] = useState<AttendanceData | null>(null);
   const [loadingSemesters, setLoadingSemesters] = useState(true);
   const [loadingAttendance, setLoadingAttendance] = useState(false);
@@ -93,7 +105,7 @@ export function useAttendanceData(sessionId: string, preferredSemester?: number)
     const cached = semesterCache.get(sessionId);
     if (!force && cached?.length) {
       setSemesters(cached);
-      setSelectedSemester((prev) => prev || pickSemester(cached, preferredSemester));
+      setSelectedSemesterState((prev) => prev || pickSemester(cached, preferredSemester));
       setLoadingSemesters(false);
       setError(null);
       setSessionExpired(false);
@@ -116,7 +128,7 @@ export function useAttendanceData(sessionId: string, preferredSemester?: number)
         saveCache(cacheKey.semesters(sessionId), data.semesters);
         semesterCache.set(sessionId, data.semesters);
         setSemesters(data.semesters);
-        setSelectedSemester((prev) => prev || pickSemester(data.semesters, preferredSemester));
+        setSelectedSemesterState((prev) => prev || pickSemester(data.semesters, preferredSemester));
       } else {
         setError(data.error || 'Failed to load semesters');
       }
@@ -131,15 +143,19 @@ export function useAttendanceData(sessionId: string, preferredSemester?: number)
   // from the localStorage cache (fresh or stale — UI marks which), then
   // refresh from the network and reconcile. The backend already coalesces
   // duplicate /attendance/report calls per session, so the refresh is cheap.
+  // Monotonic id so a slow response for a previously selected semester
+  // can never overwrite the currently selected semester's data.
+  const loadSeqRef = useRef(0);
   const loadAttendance = useCallback(async (semesterId?: string) => {
     const semId = semesterId || selectedSemester;
     if (!semId) return;
+    const runId = ++loadSeqRef.current;
     setError(null);
     setSessionExpired(false);
 
     const cached = loadCache<AttendanceData & { semesterId?: string }>(cacheKey.attendance(sessionId, semId));
     if (cached?.data?.subjects?.length) {
-      setAttendance({ semester: cached.data.semester, subjects: cached.data.subjects });
+      setAttendance({ semester: cached.data.semester, subjects: cached.data.subjects, semesterId: semId });
       setAttendanceFresh(cached.fresh);
     }
 
@@ -151,6 +167,9 @@ export function useAttendanceData(sessionId: string, preferredSemester?: number)
         body: JSON.stringify({ semesterId: semId }),
       });
       const data = await res.json();
+      // Stale response: a newer load (semester switch / refresh) is already
+      // in charge — discard this one entirely.
+      if (runId !== loadSeqRef.current) return;
       if (isSessionError(data.error, (data as any).code)) {
         setError(data.error || 'Session expired');
         setSessionExpired(true);
@@ -163,22 +182,33 @@ export function useAttendanceData(sessionId: string, preferredSemester?: number)
           semesterId: semId,
         };
         saveCache(cacheKey.attendance(sessionId, semId), next);
-        setAttendance({ semester: data.semester, subjects: data.subjects });
+        setAttendance({ semester: data.semester, subjects: data.subjects, semesterId: semId });
         setAttendanceFresh(true);
       } else if (!cached?.data?.subjects?.length) {
         // Only surface the failure when there is no cached data to show.
         setError(data.error || 'Failed to load attendance');
       }
     } catch {
-      if (!cached?.data?.subjects?.length) setError('Unable to connect to server');
+      if (runId === loadSeqRef.current && !cached?.data?.subjects?.length) setError('Unable to connect to server');
     } finally {
-      setLoadingAttendance(false);
+      // Only the run that still owns the state may clear the flag; otherwise
+      // a stale response could clear the spinner of an in-flight load and
+      // leave the UI in an inconsistent "loading" state.
+      if (runId === loadSeqRef.current) setLoadingAttendance(false);
     }
   }, [sessionId, selectedSemester]);
 
   useEffect(() => {
     loadSemesters();
   }, [loadSemesters]);
+
+  // The current semester is derived from the profile's batch year, which often
+  // resolves AFTER the semester list (profile and /attendance race). Without
+  // this the page locked onto Semester 1 and never corrected itself.
+  useEffect(() => {
+    if (!preferredSemester || !semesters.length || userPickedRef.current) return;
+    setSelectedSemesterState(pickSemester(semesters, preferredSemester));
+  }, [preferredSemester, semesters]);
 
   return {
     semesters,

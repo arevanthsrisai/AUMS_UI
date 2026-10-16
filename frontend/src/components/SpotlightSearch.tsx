@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Search, CornerDownLeft, LayoutDashboard, CalendarDays, GraduationCap, CalendarRange, Settings, BookOpen, User, TrendingUp } from 'lucide-react';
+import { Search, CornerDownLeft, LayoutDashboard, CalendarDays, GraduationCap, CalendarRange, Settings, BookOpen, User, TrendingUp, FileSpreadsheet } from 'lucide-react';
 import type { NavKey } from './layout/Sidebar';
 import type { StudentProfile, GpaSummaryData } from '../App';
 import { useAttendanceData, type AttendanceSubject } from '../hooks/useAttendanceData';
@@ -129,13 +129,14 @@ export function SpotlightSearch({ open, onClose, sessionId, profile, gpaSummary,
       category: 'Navigation',
       title: label,
       subtitle,
-      icon: key === 'dashboard' ? LayoutDashboard : key === 'attendance' ? CalendarDays : key === 'gpa' ? GraduationCap : key === 'calendar' ? CalendarRange : Settings,
+      icon: key === 'dashboard' ? LayoutDashboard : key === 'attendance' ? CalendarDays : key === 'gpa' ? GraduationCap : key === 'marks' ? FileSpreadsheet : key === 'calendar' ? CalendarRange : Settings,
       action: () => onNavigate(key),
     });
     return [
       go('dashboard', 'Dashboard', 'Overview and quick stats'),
       go('attendance', 'Attendance', 'Subject-wise attendance'),
       go('gpa', 'GPA', 'Grades and performance'),
+      go('marks', 'Marks', 'Published exam marks'),
       go('calendar', 'Calendar', 'Attendance calendar'),
       go('settings', 'Settings', 'Theme and account'),
     ];

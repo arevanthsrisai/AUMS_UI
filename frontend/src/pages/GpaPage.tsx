@@ -13,7 +13,11 @@ import { API_BASE, fetchWithTimeout, isSessionExpired } from '../lib/api';
 interface GpaPageProps {
   sessionId: string;
   onSessionExpired?: () => void;
-  /** Current semester (computed from batch) — the page opens on this. */
+  /**
+   * Current semester (computed from batch). No longer used to pick the
+   * opening semester — the GPA page always opens on Semester 1 so the
+   * progression reads chronologically from the start.
+   */
   currentSemester?: number;
 }
 
@@ -83,30 +87,27 @@ const fadeUp = {
   show: (i: number) => ({ opacity: 1, y: 0, transition: { delay: i * 0.06, duration: 0.4, ease: [0.16, 1, 0.3, 1] as const } }),
 };
 
-export function GpaPage({ sessionId, onSessionExpired, currentSemester }: GpaPageProps) {
+export function GpaPage({ sessionId, onSessionExpired }: GpaPageProps) {
   const [data, setData] = useState<GPAData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [semester, setSemester] = useState(currentSemester ?? 1);
+  // Always open on Semester 1 — grades read chronologically from the start of
+  // the programme rather than jumping to whatever semester is "current".
+  const [semester, setSemester] = useState(1);
   const { error: toastError } = useToast();
-
-  // If the semester resolves after mount (profile still loading), switch to it.
-  const semesterSyncedRef = useRef(currentSemester != null);
-  useEffect(() => {
-    if (currentSemester && !semesterSyncedRef.current) {
-      semesterSyncedRef.current = true;
-      setSemester(currentSemester);
-      fetchGpa(currentSemester);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSemester]);
+  // Monotonic run id: only the latest request may write state, so a slow
+  // response for a previously selected semester can't overwrite the current
+  // selection (and the spinner is only cleared by its own run).
+  const fetchSeqRef = useRef(0);
 
   const fetchGpa = async (sem = semester) => {
+    const runId = ++fetchSeqRef.current;
     setLoading(true);
     setError(null);
     try {
       const res = await fetchWithTimeout(`${API_BASE}/gpa?semester=${sem}`, { headers: { 'x-session-id': sessionId } });
       const json: GPAData = await res.json();
+      if (runId !== fetchSeqRef.current) return;
       if (json.success) {
         setData(json);
       } else if (isSessionExpired((json as { code?: string }).code)) {
@@ -119,10 +120,11 @@ export function GpaPage({ sessionId, onSessionExpired, currentSemester }: GpaPag
         toastError(json.error || 'Failed to fetch GPA data');
       }
     } catch {
+      if (runId !== fetchSeqRef.current) return;
       setError('Unable to connect to server');
       toastError('Unable to connect to server');
     } finally {
-      setLoading(false);
+      if (runId === fetchSeqRef.current) setLoading(false);
     }
   };
 
@@ -212,13 +214,13 @@ export function GpaPage({ sessionId, onSessionExpired, currentSemester }: GpaPag
         </Card>
       )}
 
-      {loading && <Skeleton className="h-40" />}
+      {loading && !data && <Skeleton className="h-40" />}
 
       {!loading && !data && !error && (
         <EmptyState icon={GraduationCap} title="No GPA data" description="Select a semester and load your GPA." actionLabel="Load GPA" onAction={() => fetchGpa()} />
       )}
 
-      {!loading && data && (
+      {data && (
         <div className="space-y-6">
           {/* Metric cards */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

@@ -52,6 +52,18 @@ async function getGPA() {
   });
 }
 
+async function getMarks() {
+  return test('Marks', async () => {
+    const res = await fetch(BASE + '/marks?semester=1', {
+      headers: { 'x-session-id': sessionId }
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    console.log('   Semester: ' + data.semester + ', Courses: ' + (data.courses?.length || 0) + ', Exams: ' + (data.exams?.length || 0));
+    return data;
+  });
+}
+
 async function getAttendanceSemesters() {
   return test('Attendance Semesters', async () => {
     const res = await fetch(BASE + '/attendance', {
@@ -110,6 +122,7 @@ async function runSingleUser() {
   await login();
   await getProfile();
   await getGPA();
+  await getMarks();
   const semesters = await getAttendanceSemesters();
   if (semesters.length > 0) {
     await getAttendanceReport(semesters[0].id);

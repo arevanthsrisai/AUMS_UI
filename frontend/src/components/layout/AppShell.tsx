@@ -17,6 +17,7 @@ const titles: Record<NavKey, string> = {
   dashboard: 'Dashboard',
   attendance: 'Attendance',
   gpa: 'GPA',
+  marks: 'Marks',
   calendar: 'Calendar',
   settings: 'Settings',
 };
